@@ -1,0 +1,6 @@
+@extends('admin.layout')
+@section('title','فاتورة '.$invoice->number)
+@section('content')
+<header class="page-header"><div><div class="eyebrow">فاتورة معتمدة</div><h1 class="latin">{{ $invoice->number }}</h1><p>{{ $invoice->issued_at->format('Y/m/d H:i') }}</p></div><button class="button button-secondary" data-print-page>طباعة الفاتورة</button></header>
+<section class="card"><div class="section-heading"><div><small>صادرة إلى</small><h2>{{ $invoice->buyer_name }}</h2><span class="latin">{{ $invoice->buyer_email }}</span></div></div><div class="table-wrap"><table><thead><tr><th>البند</th><th>المرجع</th></tr></thead><tbody>@foreach($invoice->line_items as $line)<tr><td>{{ $line['name_ar'] ?: $line['name'] }}</td><td class="latin">{{ $line['course_id'] }}</td></tr>@endforeach</tbody></table></div><div class="detail-list"><div class="detail-item"><span>الإجمالي قبل الخصم</span><strong>{{ number_format((float)$invoice->subtotal,2) }} {{ $invoice->currency }}</strong></div><div class="detail-item"><span>الخصم</span><strong>{{ number_format((float)$invoice->discount,2) }} {{ $invoice->currency }}</strong></div><div class="detail-item"><span>المبلغ المدفوع</span><strong>{{ number_format((float)$invoice->total,2) }} {{ $invoice->currency }}</strong></div></div></section>
+@endsection
