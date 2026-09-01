@@ -1,6 +1,9 @@
 *.log
 .DS_Store
 .env
+.env.*
+!.env.example
+!.env.*.example
 .env.backup
 .env.production
 .phpactor.json
@@ -20,6 +23,11 @@
 /public/storage
 /storage/*.key
 /storage/pail
+/storage/framework/cache/data/*
+/storage/framework/sessions/*
+/storage/framework/testing/*
+/storage/framework/views/*.php
+/storage/logs/*.log
 /vendor
 _ide_helper.php
 Homestead.json
