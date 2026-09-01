@@ -101,6 +101,23 @@ class MediaApiTest extends TestCase
         $this->assertDatabaseCount('media_assets', 0);
     }
 
+    public function test_course_resource_upload_rejects_dangerous_extensions_even_with_allowed_mime(): void
+    {
+        Storage::fake('local');
+        $course = $this->course('bad-resource-course');
+        $lesson = $course->lessons()->create(['slug' => 'resource', 'title' => 'ملف', 'title_en' => 'Resource', 'duration_minutes' => 10, 'position' => 1]);
+        Sanctum::actingAs(User::factory()->create(['role' => 'admin']));
+
+        foreach (['php', 'phtml', 'html', 'svg', 'js', 'exe', 'sh'] as $extension) {
+            $this->postJson('/api/admin/courses/'.$course->id.'/lessons/'.$lesson->id.'/media', [
+                'kind' => 'resource',
+                'file' => UploadedFile::fake()->create("resource.{$extension}", 10, 'application/pdf'),
+            ])->assertUnprocessable();
+        }
+
+        $this->assertDatabaseCount('media_assets', 0);
+    }
+
     private function course(string $id = 'media-course'): Course
     {
         return Course::create(['id' => $id, 'title' => 'دورة', 'title_en' => 'Course', 'summary' => 'ملخص', 'summary_en' => 'Summary', 'category' => 'Programming', 'grade' => 'grade-1', 'semester' => 'semester-1', 'level' => 'Beginner', 'duration_minutes' => 60, 'price' => 100, 'instructor' => 'أحمد', 'instructor_en' => 'Ahmed', 'is_published' => true]);

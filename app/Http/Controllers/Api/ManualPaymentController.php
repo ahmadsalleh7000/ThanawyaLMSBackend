@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ManualPaymentSubmission;
 use App\Models\User;
+use App\Rules\AllowedUploadedFileExtension;
 use App\Services\ManualPaymentSettingsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,7 +26,7 @@ class ManualPaymentController extends Controller
             'sender_identifier' => ['required', 'string', 'min:4', 'max:100'],
             'transferred_at' => ['required', 'date', 'before_or_equal:now', 'after:'.now()->subDays(7)->toDateTimeString()],
             'submitted_amount' => ['required', 'numeric', 'gt:0'],
-            'receipt' => ['required', 'file', 'mimetypes:image/jpeg,image/png,image/webp,application/pdf', 'max:5120'],
+            'receipt' => ['required', 'file', new AllowedUploadedFileExtension(['jpg', 'jpeg', 'png', 'webp', 'pdf']), 'mimetypes:image/jpeg,image/png,image/webp,application/pdf', 'max:5120'],
             'student_note' => ['nullable', 'string', 'max:1000'],
         ], [
             'transaction_id.unique' => 'This transaction ID was already submitted. Check the reference or contact support.',

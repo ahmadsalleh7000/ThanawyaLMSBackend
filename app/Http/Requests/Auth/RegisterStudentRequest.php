@@ -6,6 +6,7 @@ use App\Enums\GuardianRelationshipType;
 use App\Models\AcademicTerm;
 use App\Rules\EgyptianMobileNumber;
 use App\Models\SubscriptionPlan;
+use App\Rules\AllowedUploadedFileExtension;
 use App\Services\CommercePricingService;
 use App\Services\ManualPaymentSettingsService;
 use App\Services\PlatformSettingsService;
@@ -53,7 +54,7 @@ class RegisterStudentRequest extends FormRequest
             'transaction_id' => ['nullable', 'string', 'min:4', 'max:150', 'unique:manual_payment_submissions,transaction_id'],
             'sender_identifier' => ['nullable', 'string', 'min:4', 'max:100'],
             'transferred_at' => ['nullable', 'date', 'before_or_equal:now', 'after:'.now()->subDays(7)->toDateTimeString()],
-            'receipt' => ['nullable', 'file', 'mimetypes:image/jpeg,image/png,image/webp,application/pdf', 'max:5120'],
+            'receipt' => ['nullable', 'file', new AllowedUploadedFileExtension(['jpg', 'jpeg', 'png', 'webp', 'pdf']), 'mimetypes:image/jpeg,image/png,image/webp,application/pdf', 'max:5120'],
             'role' => ['prohibited'],
             'device_name' => ['nullable', 'string', 'max:120'],
         ];

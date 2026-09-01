@@ -130,6 +130,39 @@ class ManualPaymentWorkflowTest extends TestCase
         $this->actingAs($editor)->get(route('admin.payment-reviews.receipt', $submission))->assertForbidden();
     }
 
+    public function test_student_cannot_read_another_students_private_receipt(): void
+    {
+        $student = User::factory()->create(['role' => 'student']);
+        $otherStudent = User::factory()->create(['role' => 'student']);
+        $order = $student->orders()->create(['public_id' => fake()->uuid(), 'course_id' => $this->course()->id, 'amount' => 350, 'original_amount' => 350, 'currency' => 'EGP', 'status' => 'submitted', 'payment_provider' => 'manual_transfer', 'payment_method' => 'instapay', 'session_token_hash' => hash('sha256', str_repeat('b', 64))]);
+        $submission = ManualPaymentSubmission::create(['order_id' => $order->id, 'user_id' => $student->id, 'channel' => 'instapay', 'transaction_id' => 'PRIVATE-2', 'sender_identifier' => '01000000000', 'transferred_at' => now(), 'submitted_amount' => 350, 'receipt_path' => 'payment-receipts/test.jpg', 'receipt_original_name' => 'test.jpg', 'receipt_mime' => 'image/jpeg', 'receipt_size' => 10, 'receipt_sha256' => str_repeat('b', 64), 'status' => 'submitted']);
+
+        $this->actingAs($otherStudent)->get(route('admin.payment-reviews.receipt', $submission))->assertForbidden();
+    }
+
+    public function test_dangerous_receipt_extensions_are_rejected_even_with_image_mime(): void
+    {
+        $this->withoutMiddleware(\Illuminate\Routing\Middleware\ThrottleRequests::class);
+        $student = User::factory()->create(['role' => 'student']);
+        $course = $this->course();
+        Sanctum::actingAs($student);
+        $session = $this->postJson('/api/payments/checkout', ['course_id' => $course->id, 'payment_method' => 'instapay'])->json('session_id');
+
+        foreach (['php', 'phtml', 'html', 'svg', 'js', 'exe', 'sh'] as $index => $extension) {
+            $this->post('/api/payments/manual/submit', [
+                'session_id' => $session,
+                'channel' => 'instapay',
+                'transaction_id' => 'BAD-RECEIPT-'.$index,
+                'sender_identifier' => '01000000000',
+                'transferred_at' => now()->toDateTimeString(),
+                'submitted_amount' => 350,
+                'receipt' => UploadedFile::fake()->create("receipt.{$extension}", 10, 'image/jpeg'),
+            ], ['Accept' => 'application/json'])->assertUnprocessable();
+        }
+
+        $this->assertDatabaseCount('manual_payment_submissions', 0);
+    }
+
     public function test_finance_queue_filters_exports_and_flags_duplicate_receipts(): void
     {
         $course = $this->course();

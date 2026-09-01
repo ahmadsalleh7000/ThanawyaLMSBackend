@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\Lesson;
 use App\Models\MediaAsset;
+use App\Rules\AllowedUploadedFileExtension;
 use App\Services\AuditService;
 use App\Services\MediaLibraryService;
 use Illuminate\Http\JsonResponse;
@@ -18,9 +19,10 @@ class AdminMediaController extends Controller
     {
         $this->ensureLesson($course, $lesson);
         abort_if($course->archived_at, 409, 'Archived courses cannot accept media.');
+        $kind = (string) $request->input('kind');
         $validated = $request->validate([
             'kind' => ['required', Rule::in(['video', 'resource', 'lesson_pdf'])],
-            'file' => ['required', 'file', 'max:524288'],
+            'file' => array_merge(['required', 'file', 'max:524288'], $this->fileRules($kind)),
         ]);
         $item = $library->upload($validated['file'], $validated['kind'], $request->user());
         $asset = $library->attach($item, $lesson);
@@ -53,6 +55,15 @@ class AdminMediaController extends Controller
     private function ensureLesson(Course $course, Lesson $lesson): void
     {
         abort_unless($lesson->course_id === $course->id, 404);
+    }
+
+    private function fileRules(string $kind): array
+    {
+        return match ($kind) {
+            'video' => [new AllowedUploadedFileExtension(['mp4', 'webm']), 'mimetypes:video/mp4,video/webm'],
+            'lesson_pdf' => [new AllowedUploadedFileExtension(['pdf']), 'mimetypes:application/pdf'],
+            default => [new AllowedUploadedFileExtension(['pdf', 'zip', 'txt', 'docx']), 'mimetypes:application/pdf,application/zip,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+        };
     }
 
     private function serialize(MediaAsset $asset): array

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\Lesson;
 use App\Models\MediaAsset;
+use App\Rules\AllowedUploadedFileExtension;
 use App\Services\AuditService;
 use App\Services\MediaLibraryService;
 use Illuminate\Http\RedirectResponse;
@@ -28,7 +29,7 @@ class AdminMediaController extends Controller
         ]);
 
         $data = $request->validate([
-            'file' => ['required', 'file', 'mimes:pdf', 'max:524288'],
+            'file' => ['required', 'file', new AllowedUploadedFileExtension(['pdf']), 'mimetypes:application/pdf', 'max:524288'],
         ]);
 
         try {
@@ -62,10 +63,8 @@ class AdminMediaController extends Controller
     public function store(Request $request, Course $course, Lesson $lesson, AuditService $audit, MediaLibraryService $library): RedirectResponse
     {
         abort_unless($lesson->course_id === $course->id, 404);
-        $rules = ['kind' => ['required', Rule::in(['video', 'resource', 'lesson_pdf'])], 'file' => ['required', 'file', 'max:524288']];
-        if ($request->input('kind') === 'lesson_pdf') {
-            $rules['file'][] = 'mimes:pdf';
-        }
+        $kind = (string) $request->input('kind');
+        $rules = ['kind' => ['required', Rule::in(['video', 'resource', 'lesson_pdf'])], 'file' => array_merge(['required', 'file', 'max:524288'], $this->fileRules($kind))];
         $data = $request->validate($rules);
         $asset = $this->storeAndAttach($data['file'], $data['kind'], $lesson, $request, $audit, $library);
 
@@ -101,5 +100,14 @@ class AdminMediaController extends Controller
         $audit->record($request, 'media.created', $asset);
 
         return $asset;
+    }
+
+    private function fileRules(string $kind): array
+    {
+        return match ($kind) {
+            'video' => [new AllowedUploadedFileExtension(['mp4', 'webm']), 'mimetypes:video/mp4,video/webm'],
+            'lesson_pdf' => [new AllowedUploadedFileExtension(['pdf']), 'mimetypes:application/pdf'],
+            default => [new AllowedUploadedFileExtension(['pdf', 'zip', 'txt', 'docx']), 'mimetypes:application/pdf,application/zip,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+        };
     }
 }
