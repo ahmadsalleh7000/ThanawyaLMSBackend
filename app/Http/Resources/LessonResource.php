@@ -35,11 +35,22 @@ class LessonResource extends JsonResource
         $trainings = $canAccessContent && $this->relationLoaded('trainings')
             ? $this->trainings->filter(fn ($training) => $training->status === 'published')
             : collect();
+        $assignments = $canAccessContent && $this->relationLoaded('assignments')
+            ? $this->assignments->filter(fn ($assignment) => $assignment->is_published)
+            : collect();
         $sections = $canAccessContent && $this->relationLoaded('sections')
             ? $this->sections->filter(fn ($section) => $section->visibleOnWeb())
             : collect();
 
-        return ['id' => $this->slug, 'databaseId' => $this->id, 'title' => $this->title, 'titleEn' => $this->title_en, 'duration' => $this->duration_minutes.'m', 'durationMinutes' => (int) $this->duration_minutes, 'preview' => $this->is_preview, 'videoUrl' => $canAccessContent ? $this->video_url : null, 'contentPdf' => [
+        return ['id' => $this->slug, 'databaseId' => $this->id, 'title' => $this->title, 'titleEn' => $this->title_en, 'duration' => $this->duration_minutes.'m', 'durationMinutes' => (int) $this->duration_minutes, 'preview' => $this->is_preview, 'videoUrl' => $canAccessContent ? $this->video_url : null, 'assignments' => $assignments->map(fn ($assignment) => [
+            'id' => $assignment->id,
+            'title' => $assignment->title,
+            'titleEn' => $assignment->title_en,
+            'description' => $assignment->description,
+            'descriptionEn' => $assignment->description_en,
+            'dueDate' => $assignment->due_at?->toISOString(),
+            'status' => 'ready',
+        ])->values(), 'contentPdf' => [
             'enabled' => $canAccessContent && $this->content_pdf_enabled && ($pdfAsset || filled($contentPdfUrl)),
             'mediaId' => $pdfAsset?->id,
             'url' => $contentPdfUrl,
@@ -68,7 +79,7 @@ class LessonResource extends JsonResource
             'questionsCount' => $training->question_bank_quiz_id && $training->relationLoaded('quiz') && $training->quiz
                 ? $training->quiz->questions->count()
                 : ($training->questions_count ?? ($training->relationLoaded('questions') ? $training->questions->count() : 0)),
-        ])->values(), 'media' => $assets->map(fn ($asset) => ['id' => $asset->id, 'kind' => $asset->kind, 'name' => $asset->original_name, 'mimeType' => $asset->mime_type, 'size' => $asset->size_bytes])->values(), 'transcript' => $canAccessContent ? $this->transcript : null, 'transcriptEn' => $canAccessContent ? $this->transcript_en : null];
+        ])->values(), 'media' => $assets->map(fn ($asset) => ['id' => $asset->id, 'kind' => $asset->kind, 'name' => $asset->original_name, 'mimeType' => $asset->mime_type, 'size' => $asset->size_bytes])->values(), 'transcript' => $canAccessContent ? $this->transcript : null, 'transcriptEn' => $canAccessContent ? $this->transcript_en : null, 'captions' => $canAccessContent ? ($this->captions ?: []) : []];
     }
 
     private function sectionContent($section, $assets): array

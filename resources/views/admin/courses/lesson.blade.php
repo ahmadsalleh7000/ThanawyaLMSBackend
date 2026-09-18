@@ -4,7 +4,7 @@
 <nav class="academic-breadcrumb" aria-label="السياق الأكاديمي"><a href="{{ route('admin.academics.index') }}">الهيكل الأكاديمي</a><span>←</span><span>{{ $course->academicSubject?->term?->grade?->name_ar ?? $course->grade }}</span><span>←</span><span>{{ $course->academicSubject?->term?->name_ar ?? $course->semester }}</span><span>←</span><span>{{ $course->academicSubject?->subject?->name_ar ?? $course->category }}</span><span>←</span><strong>{{ $course->title }}</strong></nav>
 <header class="page-header lesson-editor-hero"><div><div class="eyebrow">{{ $course->title }}</div><h1>تحرير الدرس</h1><p>إدارة محتوى الدرس، الوسائط، الكراسة، والتدريبات من مساحات واضحة ومنفصلة.</p></div><div class="actions-inline lesson-editor-actions"><a class="button button-secondary" href="{{ route('admin.lessons.workbook-preview',[$course,$lesson]) }}" target="_blank" rel="noreferrer"><span aria-hidden="true">▤</span> معاينة كراسة A4</a><a class="button button-secondary" href="{{ route('admin.lessons.workbook-download',[$course,$lesson]) }}"><span aria-hidden="true">↓</span> تنزيل PDF</a><a class="button button-secondary" href="{{ route('admin.lessons.teacher-edition-preview',[$course,$lesson]) }}" target="_blank" rel="noreferrer"><span aria-hidden="true">◉</span> نسخة المعلم</a><a class="button button-quiet" href="{{ route('admin.courses.edit',$course) }}"><span aria-hidden="true">←</span> العودة للدورة</a></div></header>
 @php
-    $activeLessonTab = in_array(request('tab', 'details'), ['details', 'pdf', 'workbook', 'learning', 'completion', 'media', 'questions', 'content'], true) ? request('tab', 'details') : 'details';
+    $activeLessonTab = in_array(request('tab', 'details'), ['details', 'pdf', 'workbook', 'learning', 'completion', 'media', 'questions', 'discussion', 'content'], true) ? request('tab', 'details') : 'details';
     $lessonTabs = [
         'details' => ['label' => 'بيانات الدرس', 'icon' => '✎'],
         'pdf' => ['label' => 'قارئ PDF', 'icon' => '▤'],
@@ -13,6 +13,7 @@
         'completion' => ['label' => 'الإكمال والنصوص', 'icon' => '✓'],
         'media' => ['label' => 'الوسائط', 'icon' => '▶'],
         'questions' => ['label' => 'التدريب والأسئلة', 'icon' => '?'],
+        'discussion' => ['label' => 'مناقشة الدرس', 'icon' => '◌'],
         'content' => ['label' => 'محتوى الدرس', 'icon' => '☰'],
     ];
     $uploadBytesFromIni = static function ($value): int {
@@ -52,7 +53,7 @@
 <section class="lesson-editor-panel {{ in_array($activeLessonTab, ['details', 'media', 'questions'], true) ? 'stack' : 'grid content-columns' }}">
     <div class="stack">
         @if($activeLessonTab === 'details')
-        <form class="card lesson-details-form" method="post" action="{{ route('admin.lessons.update',[$course,$lesson]) }}">
+        <form id="lesson-details-form" class="card lesson-details-form" method="post" action="{{ route('admin.lessons.update',[$course,$lesson]) }}" data-autosave-key="lesson-editor-{{ $lesson->id }}">
             @csrf @method('put')
             <div class="full section-heading"><div><div class="eyebrow">بيانات الدرس</div><h2>العنوان والنشر والإتاحة</h2><p>هذه هي الحقول الأساسية التي تحدد مكان الدرس وظهوره داخل الدورة.</p></div></div>
             <section class="lesson-form-section">
@@ -79,10 +80,34 @@
                 <div class="lesson-form-grid">
                     <label class="full">رابط فيديو خارجي اختياري<input dir="ltr" name="video_url" value="{{ old('video_url',$lesson->video_url) }}" placeholder="https://..."></label>
                     <input type="hidden" name="is_preview" value="0"><label class="full lesson-form-toggle"><span><input type="checkbox" name="is_preview" value="1" @checked(old('is_preview',$lesson->is_preview))><b>السماح بمعاينة هذا الدرس للعامة</b><small>فعّلها فقط للدروس التي يمكن للزائر مشاهدتها قبل الاشتراك.</small></span></label>
+                    <input type="hidden" name="comments_enabled" value="0"><label class="full lesson-form-toggle"><span><input type="checkbox" name="comments_enabled" value="1" @checked(old('comments_enabled',$lesson->comments_enabled ?? true))><b>السماح بمناقشة الدرس</b><small>عند إيقافها تبقى التعليقات السابقة مرئية، ولا يمكن نشر تعليقات أو ردود جديدة.</small></span></label>
                 </div>
             </section>
             <div class="full form-actions lesson-details-actions"><button class="button button-primary"><span aria-hidden="true">✓</span> حفظ بيانات الدرس</button></div>
         </form>
+        @endif
+        @if($activeLessonTab === 'discussion')
+        <section class="card stack">
+            <div class="section-heading"><div><div class="eyebrow">التواصل التعليمي</div><h2>تعليقات الدرس</h2><p>راجع الأسئلة، أضف ردًا باسم فريق المنصة، أو احذف المحتوى غير المناسب.</p></div><span class="badge {{ $lesson->comments_enabled ? 'published' : 'inactive' }}">{{ $lesson->comments_enabled ? 'مفعّلة' : 'متوقفة' }}</span></div>
+            <div class="review-grid">
+                @forelse($comments as $comment)
+                    <article class="review-card">
+                        <div class="review-top"><div><strong>{{ $comment->user?->name ?? 'طالب سابق' }}</strong><small>{{ $comment->created_at->diffForHumans() }}</small></div><span class="badge draft">طالب</span></div>
+                        <p style="white-space:pre-wrap;overflow-wrap:anywhere">{{ $comment->content }}</p>
+                        @foreach($comment->replies as $reply)
+                            <div class="block-note" style="padding:10px;border-inline-start:3px solid #0f766e"><strong>{{ $reply->user?->name ?? 'عضو فريق سابق' }} · فريق المنصة</strong><p style="white-space:pre-wrap;overflow-wrap:anywhere">{{ $reply->content }}</p><form method="post" action="{{ route('admin.lesson-comments.destroy',[$course,$lesson,$reply]) }}" data-confirm="حذف هذا الرد؟">@csrf @method('delete')<button class="button button-danger">حذف الرد</button></form></div>
+                        @endforeach
+                        @if($lesson->comments_enabled)
+                            <form class="moderation-form" method="post" action="{{ route('admin.lesson-comments.reply',[$course,$lesson,$comment]) }}">@csrf<label>رد فريق المنصة<textarea name="content" required minlength="2" maxlength="2000"></textarea></label><button class="button button-secondary">نشر الرد</button></form>
+                        @endif
+                        <form method="post" action="{{ route('admin.lesson-comments.destroy',[$course,$lesson,$comment]) }}" data-confirm="سيتم حذف التعليق وردوده من المناقشة. هل تريد المتابعة؟">@csrf @method('delete')<button class="button button-danger">حذف للمراجعة</button></form>
+                    </article>
+                @empty
+                    <div class="empty-state">لا توجد تعليقات في هذا الدرس بعد.</div>
+                @endforelse
+            </div>
+            @if($comments)<div class="pagination">{{ $comments->links() }}</div>@endif
+        </section>
         @endif
         @if($activeLessonTab === 'pdf')
         <form class="card form-grid" method="post" enctype="multipart/form-data" action="{{ route('admin.lesson-pdf.store',[$course,$lesson]) }}" data-pdf-upload-form data-max-bytes="{{ $activeUploadLimitBytes }}">
@@ -159,6 +184,7 @@
             <label>أقل مدة مشاهدة بالثواني<input type="number" min="0" max="86400" name="completion_rules[minimum_video_seconds]" value="{{ $rules['minimum_video_seconds'] ?? 0 }}"></label>
             <label class="full">النص العربي — سطر لكل مقطع<textarea name="transcript_text">{{ old('transcript_text',implode("\n",$lesson->transcript ?? [])) }}</textarea></label>
             <label class="full" lang="en">English transcript — one segment per line<textarea dir="ltr" lang="en" name="transcript_en_text">{{ old('transcript_en_text',implode("\n",$lesson->transcript_en ?? [])) }}</textarea></label>
+            <label class="full" lang="en">Timed captions<textarea dir="ltr" lang="en" name="captions_text" rows="5" placeholder="00:00:00.000 --> 00:00:04.000 | Welcome to this lesson.">@foreach($lesson->captions ?? [] as $caption){{ $caption['start'] }} --> {{ $caption['end'] }} | {{ $caption['text'] }}@if(!$loop->last){{ "\n" }}@endif @endforeach</textarea><small>One cue per line: start --&gt; end | caption text. Use HH:MM:SS.mmm.</small></label>
             <div class="full form-actions"><button class="button button-primary"><span aria-hidden="true">✓</span> حفظ الإكمال والنصوص</button></div>
         </form>
         @endif
@@ -185,14 +211,14 @@
 @php($sectionLabels = [
     'heading' => 'عنوان', 'paragraph' => 'فقرة', 'introduction' => 'مقدمة', 'objectives' => 'أهداف تعلم',
     'key_terms' => 'مصطلحات', 'definition' => 'تعريف', 'explanation' => 'شرح', 'important_note' => 'ملاحظة مهمة',
-    'common_mistake' => 'خطأ شائع', 'example' => 'مثال', 'worked_example' => 'مثال محلول', 'comparison' => 'مقارنة',
+    'common_mistake' => 'خطأ شائع', 'example' => 'مثال', 'worked_example' => 'مثال محلول', 'comparison' => 'مقارنة', 'formula' => 'صيغة رياضية',
     'table' => 'جدول', 'image' => 'صورة', 'code' => 'كود', 'activity' => 'نشاط', 'question' => 'سؤال',
     'question_group' => 'مجموعة أسئلة', 'summary' => 'ملخص', 'challenge' => 'تحدي', 'answer_key' => 'إجابات',
     'page_break' => 'فاصل صفحة',
 ])
 @php($sectionGroups = [
     'المحتوى' => ['heading', 'paragraph', 'introduction', 'objectives', 'key_terms', 'definition', 'explanation', 'summary'],
-    'التدريس' => ['important_note', 'common_mistake', 'example', 'worked_example', 'comparison', 'activity', 'challenge'],
+    'التدريس' => ['important_note', 'common_mistake', 'example', 'worked_example', 'comparison', 'formula', 'activity', 'challenge'],
     'التقييم' => ['question', 'question_group', 'answer_key'],
     'الوسائط والتنسيق' => ['table', 'image', 'code', 'page_break'],
 ])
@@ -218,6 +244,7 @@
         </label>
         <label>عنوان اختياري<input name="title" placeholder="مثال: تحقق من فهمك"></label>
         <label>لغة الكود اختياري<input dir="ltr" lang="en" name="language" placeholder="php, js, python"></label>
+        <label class="full">الصيغة الرياضية<textarea dir="ltr" lang="en" name="formula" rows="2" placeholder="مثال: a² + b² = c² أو E = mc^2"></textarea><small>تُعرض كنص آمن. استخدم ^ للأسّ و _ للرمز السفلي.</small></label>
         <label class="full">المحتوى الرئيسي<textarea name="content_text" rows="5" placeholder="اكتب الشرح، السؤال، المثال، أو الكود هنا."></textarea></label>
         <label class="full">عناصر متعددة — سطر لكل عنصر<textarea name="items_text" rows="4" placeholder="مناسب للأهداف، النقاط، المصطلحات، أو خطوات النشاط."></textarea></label>
         <div class="full section-heading"><div><div class="eyebrow">حقول متخصصة</div><h2>للأمثلة والأخطاء الشائعة والكود</h2><p>استخدمها عند اختيار النوع المناسب. ستظهر بشكل منظم للطالب وفي الكراسة.</p></div></div>
@@ -274,6 +301,7 @@
                     <label>نوع الكتلة<select name="type" required>@foreach($sectionGroups as $group => $types)<optgroup label="{{ $group }}">@foreach($types as $type)<option value="{{ $type }}" @selected($section->type===$type)>{{ $sectionLabels[$type] }}</option>@endforeach</optgroup>@endforeach</select></label>
                     <label>العنوان<input name="title" value="{{ $section->title }}"></label>
                     <label>لغة الكود<input dir="ltr" lang="en" name="language" value="{{ data_get($section->content,'language') }}"></label>
+                    <label class="full">الصيغة الرياضية<textarea dir="ltr" lang="en" name="formula" rows="2">{{ data_get($section->content,'formula') }}</textarea><small>تُعرض كنص آمن. استخدم ^ للأسّ و _ للرمز السفلي.</small></label>
                     <label class="full">المحتوى الرئيسي<textarea name="content_text" rows="5">{{ data_get($section->content,'text') }}</textarea></label>
                     <label class="full">عناصر متعددة<textarea name="items_text" rows="4">{{ implode("\n",(array)data_get($section->content,'items',[])) }}</textarea></label>
                     <div class="full section-heading"><div><div class="eyebrow">حقول متخصصة</div><h2>للأمثلة والأخطاء الشائعة والكود</h2></div></div>
@@ -328,6 +356,19 @@
     </div>
 </section>
 @endif
+<section class="card stack lesson-revisions-card">
+    <div class="section-heading"><div><div class="eyebrow">Revision history</div><h2>سجل نسخ الدرس</h2><p>يتم حفظ نسخة قبل كل تحديث ويمكن استعادتها بأمان.</p></div></div>
+    <div class="detail-list">
+        @forelse($lesson->revisions->take(8) as $revision)
+            <div class="detail-item lesson-editor-row">
+                <div style="flex:1"><strong>{{ $revision->created_at?->format('Y-m-d H:i') }}</strong><small>{{ $revision->reason === 'before_restore' ? 'قبل الاستعادة' : 'قبل التحديث' }} · {{ $revision->user?->name ?? 'عضو فريق سابق' }}</small></div>
+                <form method="post" action="{{ route('admin.lessons.revisions.restore',[$course,$lesson,$revision]) }}" data-confirm="سيتم حفظ النسخة الحالية ثم استعادة هذه النسخة. هل تريد المتابعة؟">@csrf<button class="button button-secondary"><span aria-hidden="true">↶</span> استعادة</button></form>
+            </div>
+        @empty
+            <div class="empty-state">لا توجد نسخ محفوظة حتى الآن.</div>
+        @endforelse
+    </div>
+</section>
 @push('scripts')
 <script>
 (() => {
@@ -378,6 +419,24 @@
         }
         showFileState();
     });
+})();
+</script>
+<script>
+(() => {
+    const form = document.querySelector('[data-autosave-key]');
+    if (!form) return;
+    const key = form.dataset.autosaveKey;
+    const fields = [...form.querySelectorAll('input, select, textarea')].filter((field) => field.name && field.type !== 'hidden' && field.type !== 'file');
+    const read = () => Object.fromEntries(fields.map((field) => [field.name, field.type === 'checkbox' ? field.checked : field.value]));
+    const write = (values) => fields.forEach((field) => { if (!(field.name in values)) return; if (field.type === 'checkbox') field.checked = Boolean(values[field.name]); else field.value = values[field.name]; });
+    const saved = localStorage.getItem(key);
+    if (saved) {
+        try { const values = JSON.parse(saved); if (window.confirm('تم العثور على مسودة محلية غير محفوظة. هل تريد استعادتها؟')) write(values); else localStorage.removeItem(key); } catch { localStorage.removeItem(key); }
+    }
+    let timer;
+    const queueSave = () => { clearTimeout(timer); timer = setTimeout(() => localStorage.setItem(key, JSON.stringify(read())), 1000); };
+    fields.forEach((field) => { field.addEventListener('input', queueSave); field.addEventListener('change', queueSave); });
+    form.addEventListener('submit', () => localStorage.removeItem(key));
 })();
 </script>
 @endpush

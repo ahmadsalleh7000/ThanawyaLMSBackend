@@ -39,5 +39,8 @@ class AcademicTerm extends Model
         return $this->belongsToMany(SubscriptionPlan::class, 'subscription_plan_academic_term');
     }
 
-    public function studentSubscriptions() { return $this->hasMany(StudentSubscription::class); }
+    public function studentSubscriptions()
+    {
+        return $this->hasMany(StudentSubscription::class);
+    }
 }

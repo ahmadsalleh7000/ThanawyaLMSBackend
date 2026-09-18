@@ -2,8 +2,8 @@
 
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\SitemapController;
-use App\Http\Controllers\Web\Admin\AdminAnalyticsController;
 use App\Http\Controllers\Web\Admin\AdminAcademicStructureController;
+use App\Http\Controllers\Web\Admin\AdminAnalyticsController;
 use App\Http\Controllers\Web\Admin\AdminAnnouncementController;
 use App\Http\Controllers\Web\Admin\AdminAssessmentController;
 use App\Http\Controllers\Web\Admin\AdminAuthController;
@@ -14,6 +14,8 @@ use App\Http\Controllers\Web\Admin\AdminCourseOperationsController;
 use App\Http\Controllers\Web\Admin\AdminDashboardController;
 use App\Http\Controllers\Web\Admin\AdminEnrollmentController;
 use App\Http\Controllers\Web\Admin\AdminInstructorController;
+use App\Http\Controllers\Web\Admin\AdminLearningPathController;
+use App\Http\Controllers\Web\Admin\AdminLessonCommentController;
 use App\Http\Controllers\Web\Admin\AdminLessonController;
 use App\Http\Controllers\Web\Admin\AdminLessonSectionController;
 use App\Http\Controllers\Web\Admin\AdminManualPaymentController;
@@ -35,7 +37,6 @@ use App\Http\Controllers\Web\Admin\AdminTrustController;
 use App\Http\Controllers\Web\Admin\AdminUserController;
 use App\Http\Controllers\Web\LessonWorkbookController;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Web\Admin\AdminLearningPathController;
 
 Route::get('/', function () {
     return view('welcome');
@@ -94,8 +95,11 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'active', 'admin.per
     Route::get('/courses/{course}/lessons/{lesson}/teacher-edition-preview', [LessonWorkbookController::class, 'teacherPreview'])->name('lessons.teacher-edition-preview');
     Route::get('/courses/{course}/lessons/{lesson}/teacher-edition-download', [LessonWorkbookController::class, 'teacherDownload'])->middleware('throttle:12,1')->name('lessons.teacher-edition-download');
     Route::put('/courses/{course}/lessons/{lesson}', [AdminLessonController::class, 'update'])->name('lessons.update');
+    Route::post('/courses/{course}/lessons/{lesson}/revisions/{revision}/restore', [AdminLessonController::class, 'restoreRevision'])->name('lessons.revisions.restore');
     Route::post('/courses/{course}/lessons/{lesson}/move/{direction}', [AdminLessonController::class, 'move'])->name('lessons.move');
     Route::delete('/courses/{course}/lessons/{lesson}', [AdminLessonController::class, 'destroy'])->name('lessons.destroy');
+    Route::post('/courses/{course}/lessons/{lesson}/comments/{comment}/reply', [AdminLessonCommentController::class, 'reply'])->name('lesson-comments.reply');
+    Route::delete('/courses/{course}/lessons/{lesson}/comments/{comment}', [AdminLessonCommentController::class, 'destroy'])->name('lesson-comments.destroy');
     Route::post('/courses/{course}/lessons/{lesson}/sections', [AdminLessonSectionController::class, 'store'])->name('lesson-sections.store');
     Route::put('/courses/{course}/lessons/{lesson}/sections/{section}', [AdminLessonSectionController::class, 'update'])->name('lesson-sections.update');
     Route::post('/courses/{course}/lessons/{lesson}/sections/{section}/duplicate', [AdminLessonSectionController::class, 'duplicate'])->name('lesson-sections.duplicate');
@@ -164,7 +168,11 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'active', 'admin.per
     Route::post('/instructors', [AdminInstructorController::class, 'store'])->name('instructors.store');
     Route::put('/instructors/{instructor}', [AdminInstructorController::class, 'update'])->name('instructors.update');
     Route::post('/instructors/{instructor}/toggle', [AdminInstructorController::class, 'toggle'])->name('instructors.toggle');
+    Route::post('/instructors/{instructor}/account', [AdminInstructorController::class, 'linkAccount'])->name('instructors.account.link');
+    Route::delete('/instructors/{instructor}/account', [AdminInstructorController::class, 'unlinkAccount'])->name('instructors.account.unlink');
     Route::post('/courses/{course}/instructor', [AdminInstructorController::class, 'assign'])->name('instructors.assign');
+    Route::post('/courses/{course}/teacher-assignment', [AdminInstructorController::class, 'assignTeacher'])->name('instructors.teacher.assign');
+    Route::delete('/courses/{course}/teacher-assignment/{teacher}', [AdminInstructorController::class, 'unassignTeacher'])->name('instructors.teacher.unassign');
     Route::get('/announcements', [AdminAnnouncementController::class, 'index'])->name('announcements.index');
     Route::post('/announcements', [AdminAnnouncementController::class, 'store'])->name('announcements.store');
     Route::post('/announcements/{announcement}/publish', [AdminAnnouncementController::class, 'publish'])->middleware('throttle:5,1')->name('announcements.publish');
@@ -239,5 +247,4 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'active', 'admin.per
     Route::post('/system/observability/incidents/{incident}/resolve', [AdminObservabilityController::class, 'resolve'])->name('system.observability.incidents.resolve');
 });
 
-Route::middleware(['auth', 'active'])->group(function () {
-});
+Route::middleware(['auth', 'active'])->group(function () {});

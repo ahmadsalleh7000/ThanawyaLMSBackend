@@ -9,9 +9,11 @@ use App\Rules\AllowedUploadedFileExtension;
 use App\Services\ManualPaymentSettingsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Throwable;
 
 class ManualPaymentController extends Controller
 {
@@ -38,32 +40,53 @@ class ManualPaymentController extends Controller
             ->when($data['order_id'] ?? null, fn ($query, $publicId) => $query->where('public_id', $publicId))
             ->firstOrFail();
         Gate::forUser($request->user())->authorize('view', $order);
-        abort_unless($order->payment_provider === 'manual_transfer', 422, 'This order does not accept manual evidence.');
-        abort_unless(in_array($order->status, ['pending', 'needs_information'], true), 409, 'This order cannot accept another submission.');
-        abort_if($order->status === 'pending' && $order->created_at->addMinutes($settings->expiresMinutes())->isPast(), 410, 'This payment order has expired.');
-        abort_if(abs((float) $data['submitted_amount'] - (float) $order->amount) > 0.001, 422, 'The submitted amount must match the order total.');
 
         $file = $data['receipt'];
         $mime = (string) $file->getMimeType();
-        $path = $file->store('payment-receipts/'.now()->format('Y/m'), 'local');
-        $submission = ManualPaymentSubmission::create([
-            'order_id' => $order->id,
-            'user_id' => $request->user()->id,
-            'channel' => $data['channel'],
-            'transaction_id' => trim($data['transaction_id']),
-            'sender_identifier' => trim($data['sender_identifier']),
-            'transferred_at' => $data['transferred_at'],
-            'submitted_amount' => $data['submitted_amount'],
-            'receipt_disk' => 'local',
-            'receipt_path' => $path,
-            'receipt_original_name' => $file->getClientOriginalName(),
-            'receipt_mime' => $mime,
-            'receipt_size' => $file->getSize(),
-            'receipt_sha256' => hash_file('sha256', Storage::disk('local')->path($path)),
-            'student_note' => $data['student_note'] ?? null,
-            'status' => 'submitted',
-        ]);
-        $order->update(['status' => 'submitted']);
+        $path = null;
+        try {
+            [$order, $submission] = DB::transaction(function () use ($data, $file, $mime, $order, $request, $settings, &$path): array {
+                $lockedOrder = $order->newQuery()->lockForUpdate()->findOrFail($order->id);
+                abort_unless($lockedOrder->payment_provider === 'manual_transfer', 422, 'This order does not accept manual evidence.');
+                abort_unless(in_array($lockedOrder->status, ['pending', 'needs_information'], true), 409, 'This order cannot accept another submission.');
+                abort_if(
+                    $lockedOrder->status === 'needs_information'
+                        && $lockedOrder->manualPaymentSubmissions()->count() >= 3,
+                    409,
+                    'This order has reached the maximum number of receipt submissions. Contact support for help.',
+                );
+                abort_if($lockedOrder->status === 'pending' && $lockedOrder->created_at->addMinutes($settings->expiresMinutes())->isPast(), 410, 'This payment order has expired.');
+                abort_if(abs((float) $data['submitted_amount'] - (float) $lockedOrder->amount) > 0.001, 422, 'The submitted amount must match the order total.');
+
+                $path = $file->store('payment-receipts/'.now()->format('Y/m'), 'local');
+                $newSubmission = ManualPaymentSubmission::create([
+                    'order_id' => $lockedOrder->id,
+                    'user_id' => $request->user()->id,
+                    'channel' => $data['channel'],
+                    'transaction_id' => trim($data['transaction_id']),
+                    'sender_identifier' => trim($data['sender_identifier']),
+                    'transferred_at' => $data['transferred_at'],
+                    'submitted_amount' => $data['submitted_amount'],
+                    'receipt_disk' => 'local',
+                    'receipt_path' => $path,
+                    'receipt_original_name' => $file->getClientOriginalName(),
+                    'receipt_mime' => $mime,
+                    'receipt_size' => $file->getSize(),
+                    'receipt_sha256' => hash_file('sha256', Storage::disk('local')->path($path)),
+                    'student_note' => $data['student_note'] ?? null,
+                    'status' => 'submitted',
+                ]);
+                $lockedOrder->update(['status' => 'submitted']);
+
+                return [$lockedOrder, $newSubmission];
+            });
+        } catch (Throwable $exception) {
+            if ($path) {
+                Storage::disk('local')->delete($path);
+            }
+
+            throw $exception;
+        }
         User::where('role', User::ROLE_ADMIN)->where(function ($query) {
             $query->whereNull('admin_role')->orWhere('admin_role', 'finance_manager');
         })->each(fn ($admin) => $admin->userNotifications()->create([

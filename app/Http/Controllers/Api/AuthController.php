@@ -130,7 +130,9 @@ class AuthController extends Controller
             $events->record($request, $user, $identity, 'sanctum', false, 'temporary_password_expired');
             throw ValidationException::withMessages([$errorField => ['Your temporary password has expired. Contact the academy to reissue your guardian invitation.']]);
         }
-        if (! $user->isEligibleForAccess()) {
+        $paymentOnly = $user->role === User::ROLE_STUDENT
+            && $user->registrationStatus() === RegistrationStatus::PendingPaymentReview;
+        if (! $user->isEligibleForAccess() && ! $paymentOnly) {
             $events->record($request, $user, $user->email, 'sanctum', false, 'inactive_account');
             $message = match ($user->registrationStatus()) {
                 RegistrationStatus::PendingPaymentReview => 'Your registration and payment are still under review.',
@@ -141,8 +143,13 @@ class AuthController extends Controller
         }
 
         $events->record($request, $user, $user->email, 'sanctum', true);
+        $user->setAttribute('payment_only', $paymentOnly);
 
-        return response()->json(['user' => $user, 'token' => $user->createToken($request->string('device_name', 'web')->toString())->plainTextToken]);
+        return response()->json([
+            'user' => $user,
+            'token' => $user->createToken($request->string('device_name', 'web')->toString())->plainTextToken,
+            'paymentOnly' => $paymentOnly,
+        ]);
     }
 
     public function setForcedPassword(SetForcedPasswordRequest $request): JsonResponse

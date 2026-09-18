@@ -2,13 +2,13 @@
 
 namespace App\Http\Controllers\Web\Admin;
 
+use App\Enums\CourseScope;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\UpsertCourseRequest;
 use App\Models\AcademicSubject;
 use App\Models\AcademicYear;
 use App\Models\Course;
 use App\Models\InstructorProfile;
-use App\Enums\CourseScope;
 use App\Services\AuditService;
 use App\Services\CourseLifecycleService;
 use App\Services\CourseReadinessService;
@@ -170,6 +170,7 @@ class AdminCourseController extends Controller
             $data['semester'] = $academicSubject->term->code;
             $data['category'] = $academicSubject->subject->name_en;
         }
+
         return $this->applyInstructor($data);
     }
 

@@ -7,6 +7,7 @@ use App\Models\Course;
 use App\Models\Lesson;
 use App\Models\Training;
 use App\Models\TrainingAttempt;
+use App\Models\User;
 use App\Services\StudentContentAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,7 +20,7 @@ class LessonPracticeController extends Controller
     public function show(Request $request, Course $course, string $lesson, Training $training): JsonResponse
     {
         $lessonModel = $this->lesson($request, $course, $lesson);
-        $this->ensureTraining($training, $lessonModel);
+        $this->ensureTraining($training, $lessonModel, $request->user());
         $training->load(['questions', 'quiz.questions']);
 
         return response()->json(['data' => $this->practicePayload($training)]);
@@ -28,7 +29,7 @@ class LessonPracticeController extends Controller
     public function submit(Request $request, Course $course, string $lesson, Training $training): JsonResponse
     {
         $lessonModel = $this->lesson($request, $course, $lesson);
-        $this->ensureTraining($training, $lessonModel);
+        $this->ensureTraining($training, $lessonModel, $request->user());
         $training->load(['questions', 'quiz.questions']);
         $validated = $request->validate(['answers' => ['required', 'array'], 'answers.*' => ['integer', 'min:0']]);
         $questions = $training->questionSet();
@@ -82,12 +83,13 @@ class LessonPracticeController extends Controller
         return $lessonModel;
     }
 
-    private function ensureTraining(Training $training, Lesson $lesson): void
+    private function ensureTraining(Training $training, Lesson $lesson, User $student): void
     {
         abort_unless($training->trainable_type === Lesson::class && (int) $training->trainable_id === (int) $lesson->id, 404);
         abort_unless($training->status === 'published', 404);
         abort_if($training->available_from?->isFuture(), 403, 'Practice is not available yet.');
         abort_if($training->available_until?->isPast(), 410, 'Practice is no longer available.');
+        abort_unless($training->prerequisites()->get()->every(fn ($rule) => $student->trainingAttempts()->where('training_id', $rule->prerequisite_training_id)->where('score', '>=', $rule->minimum_score)->whereIn('status', ['passed', 'submitted'])->exists()), 403, 'Complete the prerequisite quiz first.');
     }
 
     private function practicePayload(Training $training): array

@@ -121,20 +121,41 @@ class AdminAssessmentController extends Controller
     private function validateQuestion(Request $request, Assessment $assessment, ?AssessmentQuestion $question = null, bool $creating = true): array
     {
         $presence = $creating ? 'required' : 'sometimes';
+        $textType = in_array($request->input('type'), ['short_answer', 'fill_in_blank'], true);
         $validated = $request->validate([
+            'type' => ['nullable', Rule::in(['multiple_choice', 'multiple_select', 'short_answer', 'fill_in_blank'])],
             'topic' => [$presence, 'string', 'max:150'], 'topic_ar' => [$presence, 'string', 'max:150'],
             'prompt' => [$presence, 'string', 'max:3000'], 'prompt_ar' => [$presence, 'string', 'max:3000'],
-            'options' => [$presence, 'array', 'min:2', 'max:6'], 'options.*' => ['string', 'max:1000'],
-            'options_ar' => [$presence, 'array', 'min:2', 'max:6'], 'options_ar.*' => ['string', 'max:1000'],
-            'correct_option' => [$presence, 'integer', 'min:0'],
+            'options' => [$textType ? 'nullable' : $presence, 'array', 'min:2', 'max:6'], 'options.*' => ['string', 'max:1000'],
+            'options_ar' => [$textType ? 'nullable' : $presence, 'array', 'min:2', 'max:6'], 'options_ar.*' => ['string', 'max:1000'],
+            'correct_option' => ['nullable', 'integer', 'min:0'],
+            'correct_options' => ['nullable', 'array', 'min:2', 'max:6', 'distinct'],
+            'correct_options.*' => ['integer', 'min:0'],
+            'correct_answer' => ['nullable', 'string', 'max:1000'],
             'explanation' => [$presence, 'string', 'max:3000'], 'explanation_ar' => [$presence, 'string', 'max:3000'],
             'position' => [$presence, 'integer', 'min:1', Rule::unique('assessment_questions')->where('assessment_id', $assessment->id)->ignore($question?->id)],
         ]);
         $options = $validated['options'] ?? $question?->options ?? [];
         $optionsAr = $validated['options_ar'] ?? $question?->options_ar ?? [];
+        $type = $validated['type'] ?? $question?->type ?? 'multiple_choice';
         $correct = $validated['correct_option'] ?? $question?->correct_option;
+        $correctOptions = $validated['correct_options'] ?? $question?->correct_options ?? [];
+        $correctAnswer = $validated['correct_answer'] ?? $question?->correct_answer;
         abort_unless(count($options) === count($optionsAr), 422, 'Arabic and English option counts must match.');
-        abort_unless($correct !== null && $correct < count($options), 422, 'The correct option must reference an available answer.');
+        if (in_array($type, ['short_answer', 'fill_in_blank'], true)) {
+            abort_unless(filled($correctAnswer), 422, 'Text questions require a correct answer.');
+            $validated['type'] = $type;
+            $validated['correct_option'] = null;
+            $validated['correct_options'] = null;
+        } elseif ($type === 'multiple_select') {
+            abort_unless(count($correctOptions) >= 2 && collect($correctOptions)->every(fn ($option) => $option < count($options)), 422, 'Multiple-select answers must reference available options.');
+            $validated['correct_option'] = null;
+            $validated['correct_options'] = array_values(array_unique(array_map('intval', $correctOptions)));
+        } else {
+            abort_unless($correct !== null && $correct < count($options), 422, 'The correct option must reference an available answer.');
+            $validated['type'] = 'multiple_choice';
+            $validated['correct_options'] = null;
+        }
 
         return $validated;
     }
@@ -160,6 +181,6 @@ class AdminAssessmentController extends Controller
 
     private function question(AssessmentQuestion $question): array
     {
-        return ['id' => $question->id, 'topic' => $question->topic, 'topicAr' => $question->topic_ar, 'prompt' => $question->prompt, 'promptAr' => $question->prompt_ar, 'options' => $question->options, 'optionsAr' => $question->options_ar, 'correctOption' => $question->correct_option, 'explanation' => $question->explanation, 'explanationAr' => $question->explanation_ar, 'position' => $question->position];
+        return ['id' => $question->id, 'type' => $question->type ?: 'multiple_choice', 'topic' => $question->topic, 'topicAr' => $question->topic_ar, 'prompt' => $question->prompt, 'promptAr' => $question->prompt_ar, 'options' => $question->options, 'optionsAr' => $question->options_ar, 'correctOption' => $question->correct_option, 'correctOptions' => $question->correct_options, 'correctAnswer' => $question->correct_answer, 'explanation' => $question->explanation, 'explanationAr' => $question->explanation_ar, 'position' => $question->position];
     }
 }

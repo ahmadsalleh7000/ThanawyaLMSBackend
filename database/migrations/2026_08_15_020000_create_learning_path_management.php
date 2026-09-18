@@ -25,7 +25,9 @@ return new class extends Migration
         foreach (DB::table('units')->get() as $unit) {
             $courseId = DB::table('lessons')->where('unit_id', $unit->id)->value('course_id')
                 ?: DB::table('courses')->where('academic_subject_id', $unit->academic_subject_id)->value('id');
-            if ($courseId) DB::table('units')->where('id', $unit->id)->update(['course_id' => $courseId]);
+            if ($courseId) {
+                DB::table('units')->where('id', $unit->id)->update(['course_id' => $courseId]);
+            }
         }
         // MySQL may use the old composite unique index to satisfy this FK.
         // Give the FK a stable single-column index before replacing ordering constraints.

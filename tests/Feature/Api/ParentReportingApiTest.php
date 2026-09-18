@@ -5,6 +5,7 @@ namespace Tests\Feature\Api;
 use App\Models\AcademicSubject;
 use App\Models\AcademicTerm;
 use App\Models\Course;
+use App\Models\Order;
 use App\Models\ParentStudentLink;
 use App\Models\StudentSubscription;
 use App\Models\SubscriptionPlan;
@@ -136,6 +137,55 @@ class ParentReportingApiTest extends TestCase
         $response->assertJsonPath('data.courseProgress.0.progress', 100)
             ->assertJsonPath('data.courses.0', $allowed->id)
             ->assertJsonPath('data.schedule.weeklyGoal.completedMinutes', 20);
+    }
+
+    public function test_parent_report_includes_only_linked_student_subscription_summary(): void
+    {
+        $parent = User::factory()->create(['role' => 'parent']);
+        $student = User::factory()->create(['role' => 'student']);
+        $other = User::factory()->create(['role' => 'student']);
+        $parent->linkedStudents()->attach($student->id, ['grade' => 'grade-1', 'linked_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+        $plan = SubscriptionPlan::firstOrFail();
+        Order::create([
+            'public_id' => 'parent-visible-order',
+            'user_id' => $student->id,
+            'beneficiary_user_id' => $student->id,
+            'product_type' => 'subscription',
+            'subscription_plan_id' => $plan->id,
+            'original_amount' => 500,
+            'discount_amount' => 0,
+            'amount' => 500,
+            'currency' => 'EGP',
+            'status' => 'submitted',
+            'assignment_status' => 'pending',
+            'payment_provider' => 'manual_transfer',
+            'payment_method' => 'instapay',
+            'session_token_hash' => hash('sha256', 'parent-visible-order'),
+        ]);
+        Order::create([
+            'public_id' => 'unrelated-order',
+            'user_id' => $other->id,
+            'beneficiary_user_id' => $other->id,
+            'product_type' => 'subscription',
+            'subscription_plan_id' => $plan->id,
+            'original_amount' => 900,
+            'discount_amount' => 0,
+            'amount' => 900,
+            'currency' => 'EGP',
+            'status' => 'submitted',
+            'assignment_status' => 'pending',
+            'payment_provider' => 'manual_transfer',
+            'payment_method' => 'instapay',
+            'session_token_hash' => hash('sha256', 'unrelated-order'),
+        ]);
+        Sanctum::actingAs($parent);
+
+        $this->getJson('/api/parent/students/'.$student->id)->assertOk()
+            ->assertJsonPath('data.subscription.state', 'pending_review')
+            ->assertJsonPath('data.subscription.orders.0.id', 'parent-visible-order')
+            ->assertJsonPath('data.subscription.orders.0.amount', 500)
+            ->assertJsonMissing(['id' => 'unrelated-order'])
+            ->assertJsonMissingPath('data.subscription.orders.0.reviewNote');
     }
 
     private function term(string $grade, string $semester): AcademicTerm

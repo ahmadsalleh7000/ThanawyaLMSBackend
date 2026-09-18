@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\CourseScope;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\UpsertCourseRequest;
 use App\Http\Resources\CourseResource;
-use App\Models\Course;
-use App\Enums\CourseScope;
 use App\Models\AcademicSubject;
+use App\Models\Course;
 use App\Services\AuditService;
 use App\Services\CourseLifecycleService;
 use Illuminate\Http\JsonResponse;

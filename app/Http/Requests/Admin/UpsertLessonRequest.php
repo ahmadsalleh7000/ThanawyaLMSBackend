@@ -27,6 +27,18 @@ class UpsertLessonRequest extends FormRequest
             }
         }
 
+        if ($this->has('captions_text')) {
+            $captions = collect(preg_split('/\R/', (string) $this->input('captions_text', '')))
+                ->map(fn ($line) => trim($line))->filter()
+                ->map(function (string $line): array {
+                    [$timing, $text] = array_pad(explode('|', $line, 2), 2, '');
+                    [$start, $end] = array_pad(explode('-->', trim($timing), 2), 2, '');
+
+                    return ['start' => trim($start), 'end' => trim($end), 'text' => trim($text)];
+                })->values()->all();
+            $this->merge(['captions' => $captions ?: null]);
+        }
+
         if ($this->has('completion_rules')) {
             $rules = (array) $this->input('completion_rules', []);
             $this->merge(['completion_rules' => [
@@ -66,6 +78,7 @@ class UpsertLessonRequest extends FormRequest
             'available_until' => ['nullable', 'date', 'after:available_from'],
             'video_url' => ['nullable', 'url', 'max:2048'],
             'content_pdf_enabled' => ['sometimes', 'boolean'],
+            'comments_enabled' => ['sometimes', 'boolean'],
             'content_pdf_media_id' => ['nullable', Rule::exists('media_assets', 'id')->where(fn ($query) => $query
                 ->where('lesson_id', $lesson instanceof Lesson ? $lesson->id : 0)
                 ->whereIn('kind', ['lesson_pdf', 'resource'])
@@ -93,6 +106,10 @@ class UpsertLessonRequest extends FormRequest
             'transcript.*' => ['string', 'max:1000'],
             'transcript_en' => ['nullable', 'array'],
             'transcript_en.*' => ['string', 'max:1000'],
+            'captions' => ['nullable', 'array', 'max:500'],
+            'captions.*.start' => ['required', 'date_format:H:i:s.v'],
+            'captions.*.end' => ['required', 'date_format:H:i:s.v'],
+            'captions.*.text' => ['required', 'string', 'max:1000'],
         ];
     }
 

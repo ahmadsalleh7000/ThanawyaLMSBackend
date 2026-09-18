@@ -3,8 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Attributes\Fillable;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
 
 #[Fillable(['public_reference', 'user_id', 'name', 'email', 'subject', 'message', 'admin_note', 'last_reply_body', 'status', 'handled_by', 'replied_by', 'locale', 'ip_hash', 'resolved_at', 'replied_at'])]

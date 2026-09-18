@@ -2,9 +2,12 @@
 
 namespace Tests\Feature\Web;
 
+use App\Http\Resources\LessonResource;
 use App\Models\Announcement;
 use App\Models\AssessmentAttempt;
+use App\Models\Assignment;
 use App\Models\Certificate;
+use App\Models\Cohort;
 use App\Models\Coupon;
 use App\Models\Course;
 use App\Models\CourseReview;
@@ -17,12 +20,14 @@ use App\Models\MediaAsset;
 use App\Models\MediaLibraryItem;
 use App\Models\Order;
 use App\Models\QuestionBankQuestion;
+use App\Models\QuestionBankQuiz;
 use App\Models\ScheduledCourseAction;
 use App\Models\StudentSupportCase;
 use App\Models\SubscriptionPlan;
+use App\Models\Training;
+use App\Models\Unit;
 use App\Models\User;
 use App\Models\UserNotification;
-use App\Http\Resources\LessonResource;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -298,7 +303,7 @@ class AdminPortalTest extends TestCase
         ]);
 
         $this->actingAs($admin)->put(route('admin.lessons.update', [$course, $lesson]), [
-            'transcript' => ["valid line", "bad byte \xC3\x28"],
+            'transcript' => ['valid line', "bad byte \xC3\x28"],
         ])->assertRedirect();
 
         $this->assertSame(['valid line', 'bad byte ('], $lesson->fresh()->transcript);
@@ -664,6 +669,34 @@ class AdminPortalTest extends TestCase
         $this->assertDatabaseHas('audit_logs', ['action' => 'instructor.deactivated']);
     }
 
+    public function test_instructor_manager_can_link_teacher_accounts_and_assign_courses_idempotently(): void
+    {
+        $manager = User::factory()->create(['role' => 'admin', 'admin_role' => 'instructor_manager']);
+        $teacher = User::factory()->create(['role' => User::ROLE_TEACHER, 'is_active' => true]);
+        $profile = InstructorProfile::create(['name' => 'مدرس', 'name_en' => 'Teacher', 'is_active' => true]);
+        $course = Course::factory()->create();
+
+        $this->actingAs($manager)->post(route('admin.instructors.account.link', $profile), ['user_id' => $teacher->id])->assertRedirect();
+        $this->post(route('admin.instructors.teacher.assign', $course), ['teacher_id' => $teacher->id])->assertRedirect();
+        $this->post(route('admin.instructors.teacher.assign', $course), ['teacher_id' => $teacher->id])->assertRedirect();
+
+        $this->assertSame($teacher->id, $profile->refresh()->user_id);
+        $this->assertDatabaseCount('teacher_course_assignments', 1);
+        $this->delete(route('admin.instructors.teacher.unassign', [$course, $teacher]))->assertRedirect();
+        $this->assertDatabaseHas('teacher_course_assignments', ['teacher_id' => $teacher->id, 'course_id' => $course->id, 'is_active' => false]);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'teacher.course_assigned']);
+    }
+
+    public function test_finance_staff_cannot_manage_teacher_assignments(): void
+    {
+        $finance = User::factory()->create(['role' => 'admin', 'admin_role' => 'finance_manager']);
+        $teacher = User::factory()->create(['role' => User::ROLE_TEACHER]);
+        $course = Course::factory()->create();
+
+        $this->actingAs($finance)->post(route('admin.instructors.teacher.assign', $course), ['teacher_id' => $teacher->id])->assertForbidden();
+        $this->assertDatabaseCount('teacher_course_assignments', 0);
+    }
+
     public function test_admin_can_publish_a_course_announcement_only_to_enrolled_students(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -677,15 +710,36 @@ class AdminPortalTest extends TestCase
             'title' => 'Assessment reminder', 'title_ar' => 'تذكير بالتقييم',
             'message' => 'Complete the assessment before Thursday.', 'message_ar' => 'أكمل التقييم قبل يوم الخميس.',
             'target_type' => 'course', 'course_id' => $course->id, 'action_url' => '/courses/'.$course->id,
+            'is_banner' => '1',
             'action' => 'publish',
         ])->assertRedirect();
 
         $announcement = Announcement::firstOrFail();
         $this->assertSame('published', $announcement->status);
+        $this->assertTrue($announcement->is_banner);
         $this->assertDatabaseHas('user_notifications', ['announcement_id' => $announcement->id, 'user_id' => $recipient->id]);
         $this->assertDatabaseMissing('user_notifications', ['announcement_id' => $announcement->id, 'user_id' => $otherStudent->id]);
         $this->assertDatabaseMissing('user_notifications', ['announcement_id' => $announcement->id, 'user_id' => $parent->id]);
         $this->get(route('admin.announcements.index'))->assertOk()->assertSee('تذكير بالتقييم')->assertSee('1 مستلم');
+    }
+
+    public function test_admin_can_publish_an_announcement_to_one_cohort_only(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $member = User::factory()->create(['role' => 'student']);
+        $other = User::factory()->create(['role' => 'student']);
+        $course = Course::factory()->create();
+        $member->enrollments()->create(['course_id' => $course->id, 'enrolled_at' => now(), 'status' => 'active']);
+        $cohort = Cohort::create(['course_id' => $course->id, 'name' => 'Morning', 'code' => 'morning', 'status' => 'active']);
+        $cohort->students()->attach($member->id, ['added_by' => $admin->id]);
+
+        $this->actingAs($admin)->post(route('admin.announcements.store'), [
+            'title' => 'Cohort update', 'title_ar' => 'تحديث الفصل', 'message' => 'For the morning class.', 'message_ar' => 'لطلاب الفصل الصباحي.',
+            'target_type' => 'cohort', 'cohort_id' => $cohort->id, 'action' => 'publish',
+        ])->assertRedirect();
+        $announcement = Announcement::firstOrFail();
+        $this->assertDatabaseHas('user_notifications', ['announcement_id' => $announcement->id, 'user_id' => $member->id]);
+        $this->assertDatabaseMissing('user_notifications', ['announcement_id' => $announcement->id, 'user_id' => $other->id]);
     }
 
     public function test_due_announcements_are_dispatched_once_by_the_scheduler(): void
@@ -970,7 +1024,7 @@ class AdminPortalTest extends TestCase
             'description_ar' => 'اختبار إلزامي بعد الدرس.',
         ])->assertRedirect()->assertSessionHasNoErrors();
 
-        $quiz = \App\Models\QuestionBankQuiz::firstOrFail();
+        $quiz = QuestionBankQuiz::firstOrFail();
 
         $this->post(route('admin.question-bank.quizzes.questions.attach', $quiz), [
             'question_id' => $question->id,
@@ -982,7 +1036,7 @@ class AdminPortalTest extends TestCase
 
         $this->post(route('admin.question-bank.quizzes.duplicate', $quiz))->assertRedirect();
         $this->assertDatabaseHas('question_bank_quizzes', ['name_ar' => 'نسخة من اختبار درس 1 وحدة 1', 'is_active' => false]);
-        $this->assertSame(2, \App\Models\QuestionBankQuiz::count());
+        $this->assertSame(2, QuestionBankQuiz::count());
 
         $this->post(route('admin.question-bank.duplicate', $question))->assertRedirect();
         $this->assertDatabaseHas('question_bank_questions', ['prompt_ar' => 'نسخة من يخزن المتغير قيمة.']);
@@ -997,7 +1051,7 @@ class AdminPortalTest extends TestCase
         $admin = User::factory()->create(['role' => 'admin']);
         $course = Course::factory()->create();
         $lesson = $course->lessons()->create(['slug' => 'quiz-lesson', 'title' => 'درس الاختبار', 'title_en' => 'Quiz lesson', 'duration_minutes' => 10, 'position' => 1]);
-        $quiz = \App\Models\QuestionBankQuiz::create([
+        $quiz = QuestionBankQuiz::create([
             'name_ar' => 'اختبار مرتبط',
             'name_en' => 'Linked quiz',
             'type' => 'training',
@@ -1011,7 +1065,7 @@ class AdminPortalTest extends TestCase
             'question_bank_quiz_id' => $quiz->id,
         ])->assertRedirect()->assertSessionHasNoErrors();
 
-        $training = \App\Models\Training::firstOrFail();
+        $training = Training::firstOrFail();
 
         $this->get(route('admin.lessons.edit', [$course, $lesson]).'?tab=questions')->assertOk()->assertSee('حذف الارتباط');
         $this->delete(route('admin.learning-paths.trainings.destroy', $training))->assertRedirect()->assertSessionHasNoErrors();
@@ -1091,7 +1145,9 @@ class AdminPortalTest extends TestCase
         $admin = User::factory()->create(['role' => 'admin']);
         $student = User::factory()->create(['role' => 'student']);
         $source = Course::factory()->create(['id' => 'source-course']);
-        $lesson = $source->lessons()->create(['slug' => 'intro', 'title' => 'مقدمة', 'title_en' => 'Intro', 'duration_minutes' => 10, 'position' => 1]);
+        $unit = Unit::create(['course_id' => $source->id, 'slug' => 'unit-one', 'title_ar' => 'الوحدة الأولى', 'title_en' => 'Unit one', 'position' => 1, 'status' => 'published']);
+        $lesson = $source->lessons()->create(['unit_id' => $unit->id, 'slug' => 'intro', 'title' => 'مقدمة', 'title_en' => 'Intro', 'duration_minutes' => 10, 'position' => 1]);
+        Assignment::create(['lesson_id' => $lesson->id, 'title' => 'مهمة', 'title_en' => 'Assignment', 'description_en' => 'Work', 'due_at' => now()->addDay(), 'is_published' => true, 'position' => 1]);
         $item = MediaLibraryItem::create(['uploaded_by' => $admin->id, 'kind' => 'resource', 'disk' => 'local', 'path' => 'media-library/shared.pdf', 'original_name' => 'shared.pdf', 'mime_type' => 'application/pdf', 'size_bytes' => 10, 'processing_status' => 'ready']);
         $lesson->mediaAssets()->create(['media_library_item_id' => $item->id, 'kind' => 'resource', 'disk' => 'local', 'path' => $item->path, 'original_name' => $item->original_name, 'mime_type' => $item->mime_type, 'size_bytes' => $item->size_bytes]);
         $assessment = $source->assessment()->create(['duration_minutes' => 10, 'passing_score' => 70, 'is_published' => true]);
@@ -1104,6 +1160,9 @@ class AdminPortalTest extends TestCase
         $this->assertFalse($copy->is_published);
         $this->assertSame($source->id, $copy->source_course_id);
         $this->assertCount(1, $copy->lessons);
+        $this->assertCount(1, $copy->units);
+        $this->assertSame($copy->units->first()->id, $copy->lessons->first()->unit_id);
+        $this->assertFalse($copy->lessons->first()->assignments->first()->is_published);
         $this->assertSame($item->id, $copy->lessons->first()->mediaAssets->first()->media_library_item_id);
         $this->assertCount(1, $copy->assessment->questions);
         $this->assertSame(0, $copy->enrollments()->count());

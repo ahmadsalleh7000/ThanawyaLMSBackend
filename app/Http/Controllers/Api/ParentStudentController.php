@@ -4,8 +4,13 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AssessmentAttempt;
+use App\Models\Assignment;
 use App\Models\Certificate;
 use App\Models\Course;
+use App\Models\LiveSession;
+use App\Models\LiveSessionAttendance;
+use App\Models\Order;
+use App\Models\StudentSubscription;
 use App\Models\User;
 use App\Services\StudentContentAccessService;
 use App\Services\StudentPlanningService;
@@ -34,6 +39,37 @@ class ParentStudentController extends Controller
         $link = $request->user()->linkedStudents()->whereKey($student->id)->firstOrFail();
 
         return response()->json(['data' => $this->summary($student, $link->pivot->grade, true)]);
+    }
+
+    public function assignments(Request $request, User $student): JsonResponse
+    {
+        Gate::forUser($request->user())->authorize('viewLearningReport', $student);
+        $request->user()->linkedStudents()->whereKey($student->id)->firstOrFail();
+        $courseIds = $this->access->courseIdsFor($student);
+        $assignments = Assignment::query()->where('is_published', true)->whereHas('lesson', fn ($query) => $query->whereIn('course_id', $courseIds))->with(['lesson.course:id,title,title_en', 'submissions' => fn ($query) => $query->where('user_id', $student->id)])->get();
+
+        return response()->json(['data' => $assignments->map(fn (Assignment $assignment) => [
+            'id' => $assignment->id,
+            'title' => $assignment->title,
+            'titleEn' => $assignment->title_en,
+            'courseId' => $assignment->lesson->course_id,
+            'course' => $assignment->lesson->course->title,
+            'courseEn' => $assignment->lesson->course->title_en,
+            'status' => $assignment->submissions->first()?->status ?? 'ready',
+            'score' => $assignment->submissions->first()?->score,
+            'feedback' => $assignment->submissions->first()?->feedback,
+            'submittedAt' => $assignment->submissions->first()?->submitted_at?->toISOString(),
+        ])->values()]);
+    }
+
+    public function attendance(Request $request, User $student): JsonResponse
+    {
+        Gate::forUser($request->user())->authorize('viewLearningReport', $student);
+        $request->user()->linkedStudents()->whereKey($student->id)->firstOrFail();
+        $sessions = LiveSession::query()->whereIn('course_id', $this->access->courseIdsFor($student))->where('status', 'published')->with('course:id,title,title_en')->latest('starts_at')->limit(50)->get();
+        $statuses = LiveSessionAttendance::query()->where('student_id', $student->id)->whereIn('live_session_id', $sessions->pluck('id'))->get()->keyBy('live_session_id');
+
+        return response()->json(['data' => $sessions->map(fn (LiveSession $session) => ['id' => $session->id, 'title' => $session->title, 'titleEn' => $session->title_en, 'course' => $session->course->title, 'courseEn' => $session->course->title_en, 'startsAt' => $session->starts_at?->toISOString(), 'status' => $statuses->get($session->id)?->status ?? 'unmarked'])->values()]);
     }
 
     private function summary(User $student, ?string $grade, bool $detailed = false): array
@@ -70,7 +106,7 @@ class ParentStudentController extends Controller
         $attentionStatus = ! $lastActivityAt ? 'not_started' : ($lastActivityAt->lt(now()->subDays(7)) || ($latestAttempt && ! $latestAttempt->passed) ? 'needs_attention' : 'on_track');
 
         $planning = $this->planning->for($student, false);
-        $report = ['id' => (string) $student->id, 'name' => $student->name, 'grade' => $grade, 'progress' => $average, 'courses' => $courseProgress->pluck('courseId')->values(), 'courseProgress' => $courseProgress->values(), 'lastActivityAt' => $lastActivityAt?->toISOString(), 'weeklyCompletedLessons' => $weeklyCompleted, 'weeklyTrend' => $weeklyCompleted - $previousWeeklyCompleted, 'currentStreak' => $streak, 'certificateCount' => $certifiedCourseIds->count(), 'attentionStatus' => $attentionStatus, 'schedule' => ['todayTasks' => $planning['todayTasks']->take(2)->values(), 'deadlines' => $planning['deadlines']->take(3)->values(), 'weeklyGoal' => $planning['weeklyGoal']]];
+        $report = ['id' => (string) $student->id, 'name' => $student->name, 'grade' => $grade, 'progress' => $average, 'courses' => $courseProgress->pluck('courseId')->values(), 'courseProgress' => $courseProgress->values(), 'lastActivityAt' => $lastActivityAt?->toISOString(), 'weeklyCompletedLessons' => $weeklyCompleted, 'weeklyTrend' => $weeklyCompleted - $previousWeeklyCompleted, 'currentStreak' => $streak, 'certificateCount' => $certifiedCourseIds->count(), 'attentionStatus' => $attentionStatus, 'subscription' => $this->subscriptionSummary($student), 'schedule' => ['todayTasks' => $planning['todayTasks']->take(2)->values(), 'deadlines' => $planning['deadlines']->take(3)->values(), 'weeklyGoal' => $planning['weeklyGoal']]];
         if ($detailed) {
             $report += [
                 'learningMinutes' => $completions->sum(fn ($completion) => $completion->lesson?->duration_minutes ?? 0),
@@ -102,6 +138,43 @@ class ParentStudentController extends Controller
         }
 
         return $report;
+    }
+
+    private function subscriptionSummary(User $student): array
+    {
+        $subscriptions = $student->studentSubscriptions()
+            ->with(['plan:id,code,name_ar,name_en,billing_period,currency', 'term:id,code,name_ar,name_en'])
+            ->latest('starts_at')->get();
+        $active = $subscriptions->filter(fn (StudentSubscription $subscription) => $subscription->status === 'active'
+            && (! $subscription->ends_at || $subscription->ends_at->isFuture()));
+        $orders = $student->orders()->where('product_type', 'subscription')
+            ->with('subscriptionPlan:id,code,name_ar,name_en,billing_period,currency')
+            ->latest()->limit(10)->get();
+        $actionable = $orders->first(fn (Order $order) => in_array($order->status, ['pending', 'submitted', 'needs_information'], true));
+
+        return [
+            'state' => match (true) {
+                $active->isNotEmpty() => 'active',
+                $actionable?->status === 'submitted' => 'pending_review',
+                $actionable?->status === 'needs_information' => 'rejected',
+                $actionable?->status === 'pending' => 'pending_payment',
+                $subscriptions->isNotEmpty() => 'expired',
+                default => 'none',
+            },
+            'current' => $active->isEmpty() ? null : [
+                'plan' => $active->first()->plan?->only(['code', 'name_ar', 'name_en', 'billing_period', 'currency']),
+                'startsAt' => $active->min('starts_at')?->toISOString(),
+                'endsAt' => $active->filter(fn ($subscription) => $subscription->ends_at)->max('ends_at')?->toISOString(),
+            ],
+            'orders' => $orders->map(fn (Order $order) => [
+                'id' => $order->public_id,
+                'status' => $order->status,
+                'amount' => (float) $order->amount,
+                'currency' => $order->currency,
+                'plan' => $order->subscriptionPlan?->only(['code', 'name_ar', 'name_en', 'billing_period', 'currency']),
+                'createdAt' => $order->created_at?->toISOString(),
+            ])->values(),
+        ];
     }
 
     private function currentStreak(array $dates): int

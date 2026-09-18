@@ -28,7 +28,10 @@ class AnnouncementDeliveryService
                     'message' => $announcement->message,
                     'message_ar' => $announcement->message_ar,
                     'action_url' => $announcement->action_url,
-                    'data' => json_encode(['targetType' => $announcement->target_type], JSON_THROW_ON_ERROR),
+                    'data' => json_encode([
+                        'targetType' => $announcement->target_type,
+                        'isBanner' => $announcement->is_banner,
+                    ], JSON_THROW_ON_ERROR),
                     'created_at' => $now,
                     'updated_at' => $now,
                 ])->all();
@@ -43,10 +46,11 @@ class AnnouncementDeliveryService
     private function recipients(Announcement $announcement): Builder
     {
         return User::query()->where('is_active', true)->where('role', '!=', User::ROLE_ADMIN)
-            ->when(in_array($announcement->target_type, ['course', 'grade'], true), fn (Builder $query) => $query->where(fn (Builder $preference) => $preference->whereDoesntHave('notificationPreference')->orWhereHas('notificationPreference', fn (Builder $settings) => $settings->where('course_updates', true))))
+            ->when(in_array($announcement->target_type, ['course', 'grade', 'cohort'], true), fn (Builder $query) => $query->where(fn (Builder $preference) => $preference->whereDoesntHave('notificationPreference')->orWhereHas('notificationPreference', fn (Builder $settings) => $settings->where('course_updates', true))))
             ->when($announcement->target_type === 'students', fn (Builder $query) => $query->students())
             ->when($announcement->target_type === 'parents', fn (Builder $query) => $query->parents())
             ->when($announcement->target_type === 'course', fn (Builder $query) => $query->whereHas('enrollments', fn (Builder $enrollments) => $enrollments->active()->where('course_id', $announcement->course_id)))
+            ->when($announcement->target_type === 'cohort', fn (Builder $query) => $query->whereHas('cohorts', fn (Builder $cohorts) => $cohorts->whereKey($announcement->cohort_id)))
             ->when($announcement->target_type === 'grade', function (Builder $query) use ($announcement): void {
                 $query->where(function (Builder $audience) use ($announcement): void {
                     $audience->whereHas('enrollments', fn (Builder $enrollments) => $enrollments->active()->whereHas('course', fn (Builder $course) => $course->where('grade', $announcement->grade)))

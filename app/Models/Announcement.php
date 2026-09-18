@@ -6,12 +6,12 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
-#[Fillable(['created_by', 'title', 'title_ar', 'message', 'message_ar', 'target_type', 'course_id', 'grade', 'action_url', 'status', 'publish_at', 'expires_at', 'published_at', 'cancelled_at'])]
+#[Fillable(['created_by', 'title', 'title_ar', 'message', 'message_ar', 'target_type', 'course_id', 'cohort_id', 'grade', 'action_url', 'is_banner', 'status', 'publish_at', 'expires_at', 'published_at', 'cancelled_at'])]
 class Announcement extends Model
 {
     protected function casts(): array
     {
-        return ['publish_at' => 'datetime', 'expires_at' => 'datetime', 'published_at' => 'datetime', 'cancelled_at' => 'datetime'];
+        return ['is_banner' => 'boolean', 'publish_at' => 'datetime', 'expires_at' => 'datetime', 'published_at' => 'datetime', 'cancelled_at' => 'datetime'];
     }
 
     public function scopeDue(Builder $query): Builder

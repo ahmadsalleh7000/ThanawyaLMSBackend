@@ -13,7 +13,7 @@ class LessonSection extends Model
 {
     public const TYPES = [
         'heading', 'paragraph', 'introduction', 'objectives', 'key_terms', 'definition', 'explanation',
-        'important_note', 'common_mistake', 'example', 'worked_example', 'comparison', 'table', 'image', 'code',
+        'important_note', 'common_mistake', 'example', 'worked_example', 'comparison', 'formula', 'table', 'image', 'code',
         'activity', 'question', 'question_group', 'summary', 'challenge', 'answer_key', 'page_break',
     ];
 

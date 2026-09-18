@@ -23,6 +23,7 @@ return [
         'admin.learning-paths.*' => 'content.manage',
         'admin.courses.*' => 'content.manage',
         'admin.lessons.*' => 'content.manage',
+        'admin.lesson-comments.*' => 'content.manage',
         'admin.lesson-pdf.*' => 'content.manage',
         'admin.lesson-sections.*' => 'content.manage',
         'admin.assessment.*' => 'content.manage',

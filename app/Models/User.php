@@ -25,6 +25,8 @@ class User extends Authenticatable implements MustVerifyEmail
 
     public const ROLE_STUDENT = 'student';
 
+    public const ROLE_TEACHER = 'teacher';
+
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;
 
@@ -105,9 +107,29 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasMany(LessonWorkspaceState::class);
     }
 
+    public function lessonComments(): HasMany
+    {
+        return $this->hasMany(LessonComment::class);
+    }
+
+    public function instructorProfile()
+    {
+        return $this->hasOne(InstructorProfile::class);
+    }
+
+    public function teacherCourseAssignments(): HasMany
+    {
+        return $this->hasMany(TeacherCourseAssignment::class, 'teacher_id');
+    }
+
     public function assessmentAttempts(): HasMany
     {
         return $this->hasMany(AssessmentAttempt::class);
+    }
+
+    public function trainingAttempts(): HasMany
+    {
+        return $this->hasMany(TrainingAttempt::class, 'student_id');
     }
 
     public function assessmentDrafts(): HasMany
@@ -137,6 +159,11 @@ class User extends Authenticatable implements MustVerifyEmail
             ->where('users.role', self::ROLE_STUDENT)
             ->where('users.is_active', true)
             ->withPivot(['grade', 'status', 'linked_at', 'accepted_at'])->withTimestamps();
+    }
+
+    public function cohorts(): BelongsToMany
+    {
+        return $this->belongsToMany(Cohort::class, 'cohort_members', 'student_id', 'cohort_id')->withPivot('added_by')->withTimestamps();
     }
 
     public function linkedParents(): BelongsToMany

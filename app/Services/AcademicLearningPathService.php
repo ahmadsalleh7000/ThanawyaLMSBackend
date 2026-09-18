@@ -50,6 +50,7 @@ class AcademicLearningPathService
             $completed = LessonCompletion::whereIn('user_id', $studentIds)->whereIn('lesson_id', $lessonIds)->count();
             $attempts = AssessmentAttempt::whereIn('user_id', $studentIds)->whereHas('assessment', fn ($query) => $query->where('course_id', $course->id));
             $trainingIds = $course->trainings->pluck('id')->merge($course->units->flatMap->trainings->pluck('id'))->merge($course->units->flatMap(fn ($unit) => $unit->lessons->flatMap->trainings)->pluck('id'));
+
             return ['course' => $course, 'students' => $students, 'progress' => $lessonIds->isEmpty() ? 0 : round($completed / $possible * 100),
                 'trainingCompletion' => $trainingIds->isEmpty() || ! $students ? 0 : round(TrainingAttempt::whereIn('student_id', $studentIds)->whereIn('training_id', $trainingIds)->where('status', 'submitted')->count() / ($students * $trainingIds->count()) * 100),
                 'averageScore' => round((float) ($attempts->avg('score') ?? 0), 1)];
@@ -74,15 +75,18 @@ class AcademicLearningPathService
                         'training' => $training,
                         'attempt' => $trainingAttempts->get($training->id),
                     ]);
+
                     return ['lesson' => $lesson, 'completed' => $completedLessonIds->contains($lesson->id), 'trainings' => $trainings];
                 });
                 $published = $lessons->filter(fn ($row) => $row['lesson']->status === 'published');
+
                 return ['unit' => $unit, 'lessons' => $lessons,
                     'progress' => $published->isEmpty() ? 0 : round($published->where('completed', true)->count() / $published->count() * 100)];
             });
             $publishedLessons = $units->flatMap(fn ($row) => $row['lessons'])->filter(fn ($row) => $row['lesson']->status === 'published');
             $assessmentScore = AssessmentAttempt::where('user_id', $student->id)
                 ->whereHas('assessment', fn ($query) => $query->where('course_id', $course->id))->latest('submitted_at')->value('score');
+
             return ['course' => $course, 'units' => $units,
                 'progress' => $publishedLessons->isEmpty() ? 0 : round($publishedLessons->where('completed', true)->count() / $publishedLessons->count() * 100),
                 'assessmentScore' => $assessmentScore];

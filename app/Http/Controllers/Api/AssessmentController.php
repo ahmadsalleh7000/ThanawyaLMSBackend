@@ -31,8 +31,8 @@ class AssessmentController extends Controller
             'id' => $assessment->id, 'courseId' => $course->id, 'duration' => $assessment->duration_minutes,
             'passingScore' => $assessment->passing_score,
             'questions' => $questions->map(fn ($question) => [
-                'id' => $question->id, 'topic' => $question->topic, 'topicAr' => $question->topic_ar,
-                'type' => $question->type, 'difficulty' => $question->difficulty,
+                'id' => $question->id, 'type' => $question->type ?: 'multiple_choice', 'topic' => $question->topic, 'topicAr' => $question->topic_ar,
+                'difficulty' => $question->difficulty,
                 'prompt' => $question->prompt, 'promptAr' => $question->prompt_ar,
                 'options' => $question->options, 'optionsAr' => $question->options_ar,
             ]),
@@ -66,9 +66,9 @@ class AssessmentController extends Controller
         $this->ensureAvailable($assessment);
         $draft = $assessment->drafts()->where('user_id', $request->user()->id)->firstOrFail();
         abort_if($draft->expires_at->isPast(), 422, 'Assessment time has expired.');
-        $validated = $request->validate(['answers' => ['required', 'array'], 'answers.*' => ['integer', 'min:0'], 'current_index' => ['required', 'integer', 'min:0']]);
-        $allowedIds = $this->questionsFor($assessment, $request->user()->id)->pluck('id')->map(fn ($id) => (string) $id)->all();
-        $draft->update(['answers' => collect($validated['answers'])->only($allowedIds)->all(), 'current_index' => min($validated['current_index'], max(count($allowedIds) - 1, 0))]);
+        $validated = $request->validate(['answers' => ['required', 'array'], 'current_index' => ['required', 'integer', 'min:0']]);
+        $questions = $this->questionsFor($assessment, $request->user()->id);
+        $draft->update(['answers' => $this->normalizeAnswers($validated['answers'], $questions), 'current_index' => min($validated['current_index'], max($questions->count() - 1, 0))]);
 
         return response()->json(['data' => $this->draftPayload($draft->fresh())]);
     }
@@ -80,9 +80,9 @@ class AssessmentController extends Controller
         $this->ensureAvailable($assessment);
         $questions = $this->questionsFor($assessment, $request->user()->id);
         $draft = $assessment->drafts()->where('user_id', $request->user()->id)->first();
-        $validated = $request->validate(['answers' => ['required', 'array'], 'answers.*' => ['integer', 'min:0']]);
-        $answers = $draft?->expires_at?->isPast() ? ($draft->answers ?? []) : $validated['answers'];
-        $correct = $questions->filter(fn ($question) => isset($answers[$question->id]) && (int) $answers[$question->id] === $question->correct_option)->count();
+        $validated = $request->validate(['answers' => ['required', 'array']]);
+        $answers = $draft?->expires_at?->isPast() ? ($draft->answers ?? []) : $this->normalizeAnswers($validated['answers'], $questions);
+        $correct = $questions->filter(fn ($question) => $this->answerIsCorrect($question, $answers[$question->id] ?? null))->count();
         $score = (int) round(($correct / max($questions->count(), 1)) * 100);
         $passed = $score >= $assessment->passing_score;
 
@@ -106,7 +106,8 @@ class AssessmentController extends Controller
             'certificateId' => $certificate?->public_id,
             'review' => $questions->map(fn ($question) => [
                 'questionId' => $question->id, 'selected' => $answers[$question->id] ?? null,
-                'correctOption' => $question->correct_option, 'explanation' => $question->explanation,
+                'correct' => $this->answerIsCorrect($question, $answers[$question->id] ?? null),
+                'correctOption' => $question->correct_option, 'correctOptions' => $question->correct_options, 'correctAnswer' => $question->correct_answer, 'explanation' => $question->explanation,
                 'explanationAr' => $question->explanation_ar,
             ]),
         ]);
@@ -136,5 +137,55 @@ class AssessmentController extends Controller
         }
 
         return $assessment->question_limit ? $questions->take($assessment->question_limit)->values() : $questions->values();
+    }
+
+    private function normalizeAnswers(array $answers, $questions): array
+    {
+        $normalized = [];
+        foreach ($questions as $question) {
+            $value = $answers[$question->id] ?? $answers[(string) $question->id] ?? null;
+            if ($question->type === 'multiple_select') {
+                if (! is_array($value)) {
+                    continue;
+                }
+                $value = array_values(array_unique(array_map('intval', $value)));
+                sort($value);
+                $normalized[$question->id] = $value;
+            } elseif (in_array($question->type, ['short_answer', 'fill_in_blank'], true)) {
+                if (is_string($value) && trim($value) !== '') {
+                    $normalized[$question->id] = trim($value);
+                }
+            } elseif (is_numeric($value)) {
+                $normalized[$question->id] = (int) $value;
+            }
+        }
+
+        return $normalized;
+    }
+
+    private function answerIsCorrect($question, mixed $answer): bool
+    {
+        if ($question->type === 'multiple_select') {
+            if (! is_array($answer)) {
+                return false;
+            }
+            $expected = array_map('intval', $question->correct_options ?? []);
+            sort($expected);
+            $answer = array_map('intval', $answer);
+            sort($answer);
+
+            return $answer === $expected;
+        }
+
+        if (in_array($question->type, ['short_answer', 'fill_in_blank'], true)) {
+            return is_string($answer) && $this->normalizeTextAnswer($answer) === $this->normalizeTextAnswer((string) $question->correct_answer);
+        }
+
+        return $answer !== null && (int) $answer === (int) $question->correct_option;
+    }
+
+    private function normalizeTextAnswer(string $answer): string
+    {
+        return mb_strtolower((string) preg_replace('/\s+/u', ' ', trim($answer)));
     }
 }

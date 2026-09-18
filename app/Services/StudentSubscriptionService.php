@@ -37,7 +37,21 @@ class StudentSubscriptionService
         }
 
         DB::transaction(function () use ($terms, $order, $student): void {
+            $student->newQuery()->whereKey($student->id)->lockForUpdate()->firstOrFail();
+
             foreach ($terms as $term) {
+                $alreadyActive = StudentSubscription::query()
+                    ->where('student_id', $student->id)
+                    ->where('subscription_plan_id', $order->subscription_plan_id)
+                    ->where('academic_term_id', $term->id)
+                    ->where('status', 'active')
+                    ->where(fn ($query) => $query->whereNull('ends_at')->orWhere('ends_at', '>', now()))
+                    ->exists();
+
+                if ($alreadyActive) {
+                    continue;
+                }
+
                 StudentSubscription::updateOrCreate(
                     ['student_id' => $student->id, 'academic_term_id' => $term->id, 'order_id' => $order->id],
                     ['subscription_plan_id' => $order->subscription_plan_id, 'status' => 'active', 'starts_at' => now(), 'ends_at' => $term->ends_on?->endOfDay()],

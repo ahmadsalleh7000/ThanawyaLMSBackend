@@ -4,9 +4,9 @@ namespace App\Http\Requests\Auth;
 
 use App\Enums\GuardianRelationshipType;
 use App\Models\AcademicTerm;
-use App\Rules\EgyptianMobileNumber;
 use App\Models\SubscriptionPlan;
 use App\Rules\AllowedUploadedFileExtension;
+use App\Rules\EgyptianMobileNumber;
 use App\Services\CommercePricingService;
 use App\Services\ManualPaymentSettingsService;
 use App\Services\PlatformSettingsService;
@@ -81,6 +81,7 @@ class RegisterStudentRequest extends FormRequest
 
                 if (! $hasMatchingTerm) {
                     $validator->errors()->add('subscription_plan_id', 'The selected subscription plan is not available for this grade and semester.');
+
                     return;
                 }
             }
@@ -89,6 +90,7 @@ class RegisterStudentRequest extends FormRequest
                 $quote = app(CommercePricingService::class)->quoteSubscriptionPlan($plan, $this->input('promo_code'));
             } catch (\Throwable) {
                 $validator->errors()->add('promo_code', 'The promo code is invalid or does not apply to this plan.');
+
                 return;
             }
 

@@ -20,7 +20,7 @@ class CourseController extends Controller
         $courses = ($user?->role === 'student'
             ? $this->access->visibleCoursesQuery($user)
             : Course::available())
-            ->with(['lessons.unit', 'lessons.sections', 'lessons.mediaAssets.libraryItem', 'lessons.trainings' => fn ($query) => $query->with(['quiz.questions'])->withCount('questions')])->get();
+            ->with(['lessons.unit', 'lessons.assignments', 'lessons.sections', 'lessons.mediaAssets.libraryItem', 'lessons.trainings' => fn ($query) => $query->with(['quiz.questions'])->withCount('questions')])->get();
         $accessibleCourseIds = $user ? $this->access->courseIdsFor($user) : collect();
         $courses->each(function (Course $course) use ($user, $accessibleCourseIds): void {
             $canAccess = $accessibleCourseIds->contains($course->id);
@@ -38,7 +38,7 @@ class CourseController extends Controller
         if ($user?->role === 'student') {
             abort_unless($this->access->canAccessCourse($user, $course), 403, 'This course is not included in your active learning access.');
         }
-        $course->load(['lessons.unit', 'lessons.sections', 'lessons.mediaAssets.libraryItem', 'lessons.trainings' => fn ($query) => $query->with(['quiz.questions'])->withCount('questions')]);
+        $course->load(['lessons.unit', 'lessons.assignments', 'lessons.sections', 'lessons.mediaAssets.libraryItem', 'lessons.trainings' => fn ($query) => $query->with(['quiz.questions'])->withCount('questions')]);
         $canAccess = $user && $this->access->canAccessCourse($user, $course);
         $this->filterStudentLessons($course, $user, $canAccess);
         $this->markLessonAccess($course, $user, $canAccess);

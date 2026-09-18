@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Web\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Announcement;
+use App\Models\Cohort;
 use App\Models\Course;
 use App\Services\AnnouncementDeliveryService;
 use App\Services\AuditService;
@@ -25,6 +26,7 @@ class AdminAnnouncementController extends Controller
         return view('admin.announcements.index', [
             'announcements' => $announcements,
             'courses' => Course::notArchived()->orderBy('title')->get(['id', 'title']),
+            'cohorts' => Cohort::where('status', 'active')->orderBy('name')->get(['id', 'name']),
             'counts' => [
                 'draft' => Announcement::where('status', 'draft')->count(),
                 'scheduled' => Announcement::where('status', 'scheduled')->count(),
@@ -76,10 +78,12 @@ class AdminAnnouncementController extends Controller
             'title_ar' => ['required', 'string', 'max:255'],
             'message' => ['required', 'string', 'max:5000'],
             'message_ar' => ['required', 'string', 'max:5000'],
-            'target_type' => ['required', Rule::in(['all', 'students', 'parents', 'course', 'grade'])],
+            'target_type' => ['required', Rule::in(['all', 'students', 'parents', 'course', 'cohort', 'grade'])],
             'course_id' => ['nullable', 'required_if:target_type,course', 'exists:courses,id'],
+            'cohort_id' => ['nullable', 'required_if:target_type,cohort', 'exists:cohorts,id'],
             'grade' => ['nullable', 'required_if:target_type,grade', Rule::in(['grade-1', 'grade-2', 'grade-3'])],
             'action_url' => ['nullable', 'string', 'max:1000', 'starts_with:/'],
+            'is_banner' => ['nullable', 'boolean'],
             'publish_at' => ['nullable', 'required_if:action,schedule', 'date', 'after:now'],
             'expires_at' => ['nullable', 'date', 'after:now'],
         ]);
@@ -89,6 +93,10 @@ class AdminAnnouncementController extends Controller
         if ($data['target_type'] !== 'grade') {
             $data['grade'] = null;
         }
+        if ($data['target_type'] !== 'cohort') {
+            $data['cohort_id'] = null;
+        }
+        $data['is_banner'] = (bool) ($data['is_banner'] ?? false);
 
         return $data;
     }

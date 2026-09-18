@@ -66,6 +66,45 @@ class AssessmentApiTest extends TestCase
             ->assertOk()->assertJsonPath('total', 2)->assertJsonPath('score', 100);
     }
 
+    public function test_multiple_select_requires_the_exact_set_of_correct_options(): void
+    {
+        $user = User::factory()->create(['role' => 'student']);
+        $course = Course::factory()->create(['is_published' => true]);
+        $assessment = Assessment::create(['course_id' => $course->id, 'passing_score' => 100, 'is_published' => true]);
+        $question = $assessment->questions()->create([
+            'type' => 'multiple_select', 'topic' => 'Basics', 'topic_ar' => 'أساسيات',
+            'prompt' => 'Select the valid answers', 'prompt_ar' => 'اختر الإجابات الصحيحة',
+            'options' => ['A', 'B', 'C'], 'options_ar' => ['أ', 'ب', 'ج'],
+            'correct_options' => [0, 2], 'explanation' => 'A and C.', 'explanation_ar' => 'أ و ج.', 'position' => 1,
+        ]);
+        $user->enrollments()->create(['course_id' => $course->id, 'enrolled_at' => now()]);
+        Sanctum::actingAs($user);
+
+        $this->getJson("/api/courses/{$course->id}/assessment")->assertOk()->assertJsonPath('questions.0.type', 'multiple_select');
+        $this->postJson("/api/courses/{$course->id}/assessment/submit", ['answers' => [$question->id => [2, 0]]])
+            ->assertOk()->assertJsonPath('score', 100)->assertJsonPath('review.0.correct', true);
+        $this->postJson("/api/courses/{$course->id}/assessment/submit", ['answers' => [$question->id => [0]]])
+            ->assertOk()->assertJsonPath('score', 0)->assertJsonPath('review.0.correct', false);
+    }
+
+    public function test_short_answer_grading_normalizes_case_and_whitespace(): void
+    {
+        $user = User::factory()->create(['role' => 'student']);
+        $course = Course::factory()->create(['is_published' => true]);
+        $assessment = Assessment::create(['course_id' => $course->id, 'passing_score' => 100, 'is_published' => true]);
+        $question = $assessment->questions()->create([
+            'type' => 'short_answer', 'topic' => 'Syntax', 'topic_ar' => 'الصياغة',
+            'prompt' => 'Name the language', 'prompt_ar' => 'اذكر اسم اللغة',
+            'correct_answer' => 'Java Script', 'options' => [], 'options_ar' => [],
+            'explanation' => 'JavaScript.', 'explanation_ar' => 'جافاسكريبت.', 'position' => 1,
+        ]);
+        $user->enrollments()->create(['course_id' => $course->id, 'enrolled_at' => now()]);
+        Sanctum::actingAs($user);
+
+        $this->postJson("/api/courses/{$course->id}/assessment/submit", ['answers' => [$question->id => '  java   script ']])
+            ->assertOk()->assertJsonPath('score', 100)->assertJsonPath('review.0.correct', true);
+    }
+
     public function test_student_can_start_save_and_resume_a_private_assessment_draft(): void
     {
         $user = User::factory()->create(['role' => 'student']);

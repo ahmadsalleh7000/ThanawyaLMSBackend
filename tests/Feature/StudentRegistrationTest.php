@@ -57,8 +57,9 @@ class StudentRegistrationTest extends TestCase
             'action_url' => '/admin/payment-reviews/'.$student->orders()->firstOrFail()->manualPaymentSubmissions()->firstOrFail()->id,
         ]);
         $this->postJson('/api/auth/login', ['email' => $student->email, 'password' => 'StrongPassword123!'])
-            ->assertUnprocessable()
-            ->assertJsonPath('errors.email.0', 'Your registration and payment are still under review.');
+            ->assertOk()
+            ->assertJsonPath('paymentOnly', true)
+            ->assertJsonStructure(['token']);
         Event::assertNotDispatched(GuardianInvitationCreated::class);
     }
 

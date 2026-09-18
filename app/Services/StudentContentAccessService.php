@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use App\Models\Course;
+use App\Models\CoursePrerequisite;
 use App\Models\Lesson;
+use App\Models\LessonPrerequisite;
 use App\Models\MediaAsset;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
@@ -63,12 +65,28 @@ class StudentContentAccessService
         if ($course->isGeneral()) {
             return true;
         }
+        if (! $this->prerequisitesMet($user, $course)) {
+            return false;
+        }
         if ($user->enrollments()->active()->where('course_id', $course->id)->exists()) {
             return true;
         }
 
         return $course->academic_subject_id !== null && $user->studentSubscriptions()->active()
             ->where('academic_term_id', $course->academicSubject()->where('is_active', true)->value('academic_term_id'))->exists();
+    }
+
+    public function prerequisitesMet(User $user, Course $course): bool
+    {
+        return $course->prerequisites()->with('prerequisiteCourse.lessons')->get()->every(function (CoursePrerequisite $rule) use ($user): bool {
+            $lessons = $rule->prerequisiteCourse->lessons;
+            if ($lessons->isEmpty()) {
+                return true;
+            }
+            $completed = $user->lessonCompletions()->whereIn('lesson_id', $lessons->pluck('id'))->count();
+
+            return ($completed / $lessons->count()) * 100 >= $rule->minimum_progress;
+        });
     }
 
     public function canAccessLesson(User $user, Lesson $lesson): bool
@@ -82,7 +100,9 @@ class StudentContentAccessService
             && (! $lesson->unit->available_from || $lesson->unit->available_from->isPast())
             && (! $lesson->unit->available_until || $lesson->unit->available_until->isFuture()));
 
-        return $unitAvailable && $lesson->status === 'published'
+        $prerequisitesMet = $lesson->prerequisites()->get()->every(fn (LessonPrerequisite $rule) => $user->lessonCompletions()->where('lesson_id', $rule->prerequisite_lesson_id)->exists());
+
+        return $prerequisitesMet && $unitAvailable && $lesson->status === 'published'
             && (! $lesson->available_from || $lesson->available_from->isPast())
             && (! $lesson->available_until || $lesson->available_until->isFuture());
     }

@@ -42,6 +42,7 @@ class UpsertLessonSectionRequest extends FormRequest
                 'text' => trim((string) $this->input('content_text', '')),
                 'items' => $items,
                 'language' => trim((string) $this->input('language', '')),
+                'formula' => trim((string) $this->input('formula', '')),
                 'common_mistake' => [
                     'mistake' => trim((string) $this->input('mistake', '')),
                     'correction' => trim((string) $this->input('correction', '')),
@@ -99,6 +100,7 @@ class UpsertLessonSectionRequest extends FormRequest
             'content.items' => ['array'],
             'content.items.*' => ['string', 'max:1000'],
             'content.language' => ['nullable', 'string', 'max:40'],
+            'content.formula' => ['nullable', 'string', 'max:5000'],
             'content.common_mistake' => ['array'],
             'content.common_mistake.mistake' => ['nullable', 'string', 'max:5000'],
             'content.common_mistake.correction' => ['nullable', 'string', 'max:5000'],

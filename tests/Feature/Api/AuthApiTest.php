@@ -2,7 +2,6 @@
 
 namespace Tests\Feature\Api;
 
-use App\Models\User;
 use App\Models\AcademicSubject;
 use App\Models\AcademicTerm;
 use App\Models\Coupon;
@@ -11,9 +10,10 @@ use App\Models\ManualPaymentSubmission;
 use App\Models\Order;
 use App\Models\PlatformSetting;
 use App\Models\SubscriptionPlan;
-use Illuminate\Http\UploadedFile;
+use App\Models\User;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Password;
@@ -27,7 +27,8 @@ class AuthApiTest extends TestCase
 
     public function test_student_registration_stays_pending_without_a_token_until_payment_approval(): void
     {
-        PlatformSetting::create(['key' => 'instapay_destination', 'value' => 'payments@instapay', 'group' => 'general']); cache()->forget('platform-settings');
+        PlatformSetting::create(['key' => 'instapay_destination', 'value' => 'payments@instapay', 'group' => 'general']);
+        cache()->forget('platform-settings');
         $response = $this->post('/api/auth/register', [
             'name' => 'Ahmed Student', 'email' => 'student@example.com', 'password' => 'password123',
             'password_confirmation' => 'password123', 'student_phone' => '01012345678',
@@ -269,6 +270,28 @@ class AuthApiTest extends TestCase
             'password' => 'password123',
         ])->assertUnprocessable()
             ->assertJsonValidationErrors('email');
+    }
+
+    public function test_pending_student_can_login_only_to_payment_endpoints(): void
+    {
+        $student = User::factory()->create([
+            'role' => 'student',
+            'password' => 'password123',
+            'is_active' => false,
+            'registration_status' => 'pending_payment_review',
+        ]);
+
+        $response = $this->postJson('/api/auth/login', [
+            'email' => $student->email,
+            'password' => 'password123',
+        ])->assertOk()
+            ->assertJsonPath('paymentOnly', true)
+            ->assertJsonPath('user.payment_only', true);
+
+        $token = $response->json('token');
+        $this->withToken($token)->getJson('/api/auth/me')->assertOk();
+        $this->withToken($token)->getJson('/api/me/orders')->assertOk();
+        $this->withToken($token)->getJson('/api/me/learning')->assertForbidden();
     }
 
     public function test_authenticated_user_can_update_their_profile(): void

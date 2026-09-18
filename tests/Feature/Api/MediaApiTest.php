@@ -61,7 +61,6 @@ class MediaApiTest extends TestCase
         $this->getJson('/api/media/'.$asset['id'].'/preview')->assertNotFound();
     }
 
-
     public function test_public_catalog_does_not_expose_non_preview_external_video_url(): void
     {
         $course = $this->course('hidden-url-course');

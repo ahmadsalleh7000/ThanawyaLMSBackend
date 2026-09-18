@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api;
 
+use App\Models\Announcement;
 use App\Models\Course;
 use App\Models\User;
 use App\Models\UserNotification;
@@ -66,6 +67,30 @@ class EngagementApiTest extends TestCase
         $this->assertNull($foreign->refresh()->read_at);
     }
 
+    public function test_dashboard_announcements_are_owner_scoped_unread_and_unexpired(): void
+    {
+        $user = User::factory()->create();
+        $other = User::factory()->create();
+        $active = $this->announcement(['is_banner' => true, 'expires_at' => now()->addHour()]);
+        $expired = $this->announcement(['expires_at' => now()->subMinute()]);
+        $read = $this->announcement();
+        $activeNotification = $this->announcementNotification($user, $active);
+        $this->announcementNotification($user, $expired);
+        $this->announcementNotification($user, $read, now());
+        $this->announcementNotification($other, $active);
+        Sanctum::actingAs($user);
+
+        $this->getJson('/api/me/announcements')->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $activeNotification->id)
+            ->assertJsonPath('data.0.isBanner', true)
+            ->assertJsonPath('data.0.data.targetType', 'students')
+            ->assertJsonMissing(['message' => 'Expired message']);
+
+        $this->patchJson('/api/me/notifications/'.$activeNotification->id.'/read')->assertOk();
+        $this->getJson('/api/me/announcements')->assertOk()->assertJsonCount(0, 'data');
+    }
+
     private function course(string $id, bool $published = true): Course
     {
         return Course::create(['id' => $id, 'title' => 'دورة', 'title_en' => 'Course', 'summary' => 'ملخص', 'summary_en' => 'Summary', 'category' => 'Programming', 'grade' => 'grade-1', 'semester' => 'semester-1', 'level' => 'Beginner', 'duration_minutes' => 60, 'price' => 0, 'instructor' => 'أحمد', 'instructor_en' => 'Ahmed', 'is_published' => $published]);
@@ -74,5 +99,32 @@ class EngagementApiTest extends TestCase
     private function notification(User $user): UserNotification
     {
         return $user->userNotifications()->create(['type' => 'course', 'title' => 'New lesson', 'title_ar' => 'درس جديد', 'message' => 'A lesson is ready.', 'message_ar' => 'الدرس جاهز.']);
+    }
+
+    private function announcement(array $attributes = []): Announcement
+    {
+        return Announcement::create($attributes + [
+            'title' => 'Current announcement',
+            'title_ar' => 'إعلان حالي',
+            'message' => 'Current message',
+            'message_ar' => 'رسالة حالية',
+            'target_type' => 'students',
+            'status' => 'published',
+            'published_at' => now(),
+        ]);
+    }
+
+    private function announcementNotification(User $user, Announcement $announcement, $readAt = null): UserNotification
+    {
+        return $user->userNotifications()->create([
+            'announcement_id' => $announcement->id,
+            'type' => 'announcement',
+            'title' => $announcement->title,
+            'title_ar' => $announcement->title_ar,
+            'message' => $announcement->message,
+            'message_ar' => $announcement->message_ar,
+            'data' => ['targetType' => $announcement->target_type],
+            'read_at' => $readAt,
+        ]);
     }
 }

@@ -57,8 +57,15 @@ class Course extends Model
         return $this->hasMany(Lesson::class)->orderBy('position');
     }
 
-    public function units(): HasMany { return $this->hasMany(Unit::class)->orderBy('position'); }
-    public function trainings() { return $this->morphMany(Training::class, 'trainable')->orderBy('position'); }
+    public function units(): HasMany
+    {
+        return $this->hasMany(Unit::class)->orderBy('position');
+    }
+
+    public function trainings()
+    {
+        return $this->morphMany(Training::class, 'trainable')->orderBy('position');
+    }
 
     public function enrollments(): HasMany
     {
@@ -85,6 +92,11 @@ class Course extends Model
         return $this->belongsTo(InstructorProfile::class);
     }
 
+    public function teacherAssignments(): HasMany
+    {
+        return $this->hasMany(TeacherCourseAssignment::class);
+    }
+
     public function versions(): HasMany
     {
         return $this->hasMany(CourseVersion::class)->latest();
@@ -93,5 +105,10 @@ class Course extends Model
     public function scheduledActions(): HasMany
     {
         return $this->hasMany(ScheduledCourseAction::class)->latest('run_at');
+    }
+
+    public function prerequisites(): HasMany
+    {
+        return $this->hasMany(CoursePrerequisite::class);
     }
 }

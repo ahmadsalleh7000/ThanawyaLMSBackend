@@ -12,6 +12,7 @@ Schedule::command('announcements:dispatch')->everyMinute()->withoutOverlapping()
 Schedule::command('courses:run-scheduled-actions')->everyMinute()->withoutOverlapping();
 Schedule::command('students:scan-risk')->dailyAt('02:00')->withoutOverlapping();
 Schedule::command('engagement:send-notifications')->hourly()->withoutOverlapping();
+Schedule::command('sessions:send-reminders')->hourly()->withoutOverlapping();
 Schedule::command('payments:expire-manual-orders')->everyFifteenMinutes()->withoutOverlapping();
 Schedule::command('payments:monitor-reconciliation')->hourly()->withoutOverlapping();
 Schedule::command('payments:monitor-reconciliation --summary')->dailyAt('08:00')->withoutOverlapping();

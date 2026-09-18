@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\UpsertLessonRequest;
 use App\Models\Course;
 use App\Models\Lesson;
+use App\Models\LessonRevision;
 use App\Models\QuestionBankQuiz;
 use App\Services\AuditService;
 use Illuminate\Http\RedirectResponse;
@@ -15,14 +16,19 @@ use Illuminate\View\View;
 
 class AdminLessonController extends Controller
 {
-    public function edit(Course $course, Lesson $lesson): View
+    public function edit(Request $request, Course $course, Lesson $lesson): View
     {
         $this->ensureLesson($course, $lesson);
 
+        $comments = $request->string('tab')->toString() === 'discussion'
+            ? $lesson->comments()->whereNull('parent_id')->with(['user:id,name,role', 'replies.user:id,name,role'])->oldest()->paginate(20)->withQueryString()
+            : null;
+
         return view('admin.courses.lesson', [
             'course' => $course->load('academicSubject.units'),
-            'lesson' => $lesson->load(['mediaAssets', 'trainings.questions', 'trainings.quiz.questions', 'sections']),
+            'lesson' => $lesson->load(['mediaAssets', 'trainings.questions', 'trainings.quiz.questions', 'sections', 'revisions.user']),
             'questionQuizzes' => QuestionBankQuiz::where('is_active', true)->withCount('questions')->orderBy('name_ar')->get(['id', 'name_ar', 'name_en', 'type', 'passing_score', 'is_required']),
+            'comments' => $comments,
         ]);
     }
 
@@ -52,7 +58,7 @@ class AdminLessonController extends Controller
         abort_if($course->archived_at, 409);
         $before = $lesson->attributesToArray();
         $payload = $request->safe()->except(['transcript_text', 'transcript_en_text']);
-        foreach (['is_preview', 'content_pdf_enabled', 'workbook_enabled', 'allow_print', 'allow_pdf_download', 'include_workbook_cover', 'include_workbook_info', 'include_workbook_toc', 'include_workbook_answer_key'] as $checkbox) {
+        foreach (['is_preview', 'content_pdf_enabled', 'comments_enabled', 'workbook_enabled', 'allow_print', 'allow_pdf_download', 'include_workbook_cover', 'include_workbook_info', 'include_workbook_toc', 'include_workbook_answer_key'] as $checkbox) {
             if ($request->has($checkbox)) {
                 $payload[$checkbox] = $request->boolean($checkbox);
             }
@@ -61,10 +67,31 @@ class AdminLessonController extends Controller
         $this->syncContentPdfTitleWhenSelectionChanges($request, $lesson, $payload);
         $payload = $this->normalizeUtf8Payload($payload);
 
+        LessonRevision::create([
+            'lesson_id' => $lesson->id,
+            'user_id' => $request->user()->id,
+            'snapshot' => $before,
+            'reason' => 'before_update',
+        ]);
         $lesson->update($payload);
         $audit->record($request, 'lesson.updated', $lesson, $before);
 
         return back()->with('success', 'تم تحديث بيانات الدرس.');
+    }
+
+    public function restoreRevision(Request $request, Course $course, Lesson $lesson, LessonRevision $revision, AuditService $audit): RedirectResponse
+    {
+        $this->ensureLesson($course, $lesson);
+        abort_unless($revision->lesson_id === $lesson->id, 404);
+        abort_if($course->archived_at, 409);
+
+        $before = $lesson->attributesToArray();
+        LessonRevision::create(['lesson_id' => $lesson->id, 'user_id' => $request->user()->id, 'snapshot' => $before, 'reason' => 'before_restore']);
+        $restorable = collect($revision->snapshot ?: [])->except(['id', 'course_id', 'created_at', 'updated_at'])->all();
+        $lesson->update($restorable);
+        $audit->record($request, 'lesson.revision_restored', $lesson, $before);
+
+        return back()->with('success', 'تمت استعادة نسخة الدرس.');
     }
 
     public function move(Request $request, Course $course, Lesson $lesson, string $direction, AuditService $audit): RedirectResponse

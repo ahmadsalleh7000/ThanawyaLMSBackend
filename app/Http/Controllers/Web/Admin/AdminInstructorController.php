@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Web\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\InstructorProfile;
+use App\Models\TeacherCourseAssignment;
+use App\Models\User;
 use App\Services\AuditService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -85,6 +87,28 @@ class AdminInstructorController extends Controller
         return back()->with('success', 'تم تحديث حالة المدرس.');
     }
 
+    public function linkAccount(Request $request, InstructorProfile $instructor, AuditService $audit): RedirectResponse
+    {
+        $data = $request->validate(['user_id' => ['required', 'integer', 'exists:users,id']]);
+        $teacher = User::query()->whereKey($data['user_id'])->where('role', User::ROLE_TEACHER)->firstOrFail();
+        abort_if($instructor->user_id && $instructor->user_id !== $teacher->id, 409, 'This instructor profile is already linked to another teacher account.');
+        abort_if(InstructorProfile::where('user_id', $teacher->id)->where('id', '!=', $instructor->id)->exists(), 409, 'This teacher account is already linked to another profile.');
+        $before = $instructor->attributesToArray();
+        $instructor->update(['user_id' => $teacher->id]);
+        $audit->record($request, 'instructor.account_linked', $instructor, $before);
+
+        return back()->with('success', 'تم ربط حساب المدرس بالملف المهني.');
+    }
+
+    public function unlinkAccount(Request $request, InstructorProfile $instructor, AuditService $audit): RedirectResponse
+    {
+        $before = $instructor->attributesToArray();
+        $instructor->update(['user_id' => null]);
+        $audit->record($request, 'instructor.account_unlinked', $instructor, $before);
+
+        return back()->with('success', 'تم إلغاء ربط حساب المدرس.');
+    }
+
     public function assign(Request $request, Course $course, AuditService $audit): RedirectResponse
     {
         $data = $request->validate(['instructor_profile_id' => ['required', 'integer', 'exists:instructor_profiles,id']]);
@@ -94,6 +118,31 @@ class AdminInstructorController extends Controller
         $audit->record($request, 'course.instructor_assigned', $course, $before);
 
         return back()->with('success', 'تم ربط المدرس بالدورة.');
+    }
+
+    public function assignTeacher(Request $request, Course $course, AuditService $audit): RedirectResponse
+    {
+        $data = $request->validate(['teacher_id' => ['required', 'integer', 'exists:users,id']]);
+        $teacher = User::query()->whereKey($data['teacher_id'])->where('role', User::ROLE_TEACHER)->where('is_active', true)->firstOrFail();
+        $assignment = TeacherCourseAssignment::updateOrCreate(
+            ['teacher_id' => $teacher->id, 'course_id' => $course->id],
+            ['is_active' => true],
+        );
+        $audit->record($request, 'teacher.course_assigned', $assignment);
+
+        return back()->with('success', 'تم إسناد الدورة إلى المدرس.');
+    }
+
+    public function unassignTeacher(Request $request, Course $course, User $teacher, AuditService $audit): RedirectResponse
+    {
+        $assignment = TeacherCourseAssignment::query()
+            ->where('teacher_id', $teacher->id)
+            ->where('course_id', $course->id)
+            ->firstOrFail();
+        $assignment->update(['is_active' => false]);
+        $audit->record($request, 'teacher.course_unassigned', $assignment);
+
+        return back()->with('success', 'تم إلغاء إسناد الدورة إلى المدرس.');
     }
 
     private function validated(Request $request, ?InstructorProfile $instructor = null): array

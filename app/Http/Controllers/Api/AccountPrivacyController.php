@@ -34,6 +34,7 @@ class AccountPrivacyController extends Controller
             'certificates' => DB::table('certificates')->where('user_id', $user->id)->get(['public_id', 'course_id', 'issued_at', 'revoked_at']),
             'orders' => DB::table('orders')->where('user_id', $user->id)->get(['public_id', 'course_id', 'amount', 'currency', 'status', 'payment_method', 'paid_at', 'created_at']),
             'reviews' => DB::table('course_reviews')->where('user_id', $user->id)->get(['course_id', 'rating', 'comment', 'status', 'created_at']),
+            'lesson_comments' => DB::table('lesson_comments')->where('user_id', $user->id)->whereNull('deleted_at')->get(['lesson_id', 'parent_id', 'content', 'edited_at', 'created_at']),
             'onboarding' => $user->onboardingProfile?->only(['grade', 'semester', 'learning_goal', 'experience_level', 'weekly_goal_minutes', 'leaderboard_opt_in', 'placement_answers', 'placement_score', 'recommended_level', 'recommended_course_id', 'completed_at', 'skipped_at']),
             'notification_preferences' => $user->notificationPreference?->only(['payment_updates', 'course_updates', 'learning_reminders', 'parent_progress_summaries', 'quiet_hours_enabled', 'quiet_hours_start', 'quiet_hours_end', 'reminder_time', 'weekly_summary_day', 'timezone']),
         ];

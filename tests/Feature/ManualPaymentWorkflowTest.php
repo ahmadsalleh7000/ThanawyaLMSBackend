@@ -8,6 +8,7 @@ use App\Models\PlatformSetting;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -85,6 +86,108 @@ class ManualPaymentWorkflowTest extends TestCase
         $this->assertDatabaseHas('orders', ['id' => $first->order_id, 'status' => 'submitted']);
     }
 
+    public function test_duplicate_submission_replay_creates_only_one_receipt(): void
+    {
+        $student = User::factory()->create(['role' => 'student']);
+        Sanctum::actingAs($student);
+        $session = $this->postJson('/api/payments/checkout', [
+            'course_id' => $this->course()->id,
+            'payment_method' => 'instapay',
+        ])->assertCreated()->json('session_id');
+        $payload = [
+            'session_id' => $session,
+            'channel' => 'instapay',
+            'transaction_id' => 'REPLAY-REF-1',
+            'sender_identifier' => '01000000000',
+            'transferred_at' => now()->toDateTimeString(),
+            'submitted_amount' => 350,
+            'receipt' => UploadedFile::fake()->image('receipt.jpg'),
+        ];
+
+        $this->post('/api/payments/manual/submit', $payload, ['Accept' => 'application/json'])
+            ->assertCreated();
+        $payload['receipt'] = UploadedFile::fake()->image('receipt-replayed.jpg');
+        $this->post('/api/payments/manual/submit', $payload, ['Accept' => 'application/json'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('transaction_id');
+
+        $this->assertDatabaseCount('manual_payment_submissions', 1);
+        $this->assertDatabaseCount('user_notifications', 0);
+    }
+
+    public function test_student_cannot_submit_evidence_for_another_students_order(): void
+    {
+        $owner = User::factory()->create(['role' => 'student']);
+        Sanctum::actingAs($owner);
+        $this->postJson('/api/payments/checkout', [
+            'course_id' => $this->course()->id,
+            'payment_method' => 'instapay',
+        ])->assertCreated();
+        $order = $owner->orders()->firstOrFail();
+
+        Sanctum::actingAs(User::factory()->create(['role' => 'student']));
+        $this->post('/api/payments/manual/submit', [
+            'order_id' => $order->public_id,
+            'channel' => 'instapay',
+            'transaction_id' => 'IDOR-REF-1',
+            'sender_identifier' => '01000000001',
+            'transferred_at' => now()->toDateTimeString(),
+            'submitted_amount' => 350,
+            'receipt' => UploadedFile::fake()->image('foreign-order.jpg'),
+        ], ['Accept' => 'application/json'])->assertNotFound();
+
+        $this->assertDatabaseCount('manual_payment_submissions', 0);
+        $this->assertDatabaseHas('orders', ['id' => $order->id, 'status' => 'pending']);
+    }
+
+    public function test_manual_payment_order_caps_receipt_submissions_at_three(): void
+    {
+        $student = User::factory()->create(['role' => 'student']);
+        Sanctum::actingAs($student);
+        $session = $this->postJson('/api/payments/checkout', ['course_id' => $this->course()->id, 'payment_method' => 'instapay'])->json('session_id');
+        $this->post('/api/payments/manual/submit', [
+            'session_id' => $session,
+            'channel' => 'instapay',
+            'transaction_id' => 'CAP-REF-1',
+            'sender_identifier' => '01000000000',
+            'transferred_at' => now()->toDateTimeString(),
+            'submitted_amount' => 350,
+            'receipt' => UploadedFile::fake()->image('receipt-1.jpg'),
+        ], ['Accept' => 'application/json'])->assertCreated();
+        $order = $student->orders()->firstOrFail();
+        $order->update(['status' => 'needs_information']);
+        foreach ([2, 3] as $number) {
+            ManualPaymentSubmission::create([
+                'order_id' => $order->id,
+                'user_id' => $student->id,
+                'channel' => 'instapay',
+                'transaction_id' => "CAP-REF-{$number}",
+                'sender_identifier' => '01000000000',
+                'transferred_at' => now(),
+                'submitted_amount' => 350,
+                'receipt_disk' => 'local',
+                'receipt_path' => "payment-receipts/test-{$number}.jpg",
+                'receipt_original_name' => "receipt-{$number}.jpg",
+                'receipt_mime' => 'image/jpeg',
+                'receipt_size' => 10,
+                'receipt_sha256' => hash('sha256', "cap-{$number}"),
+                'status' => 'needs_information',
+            ]);
+        }
+
+        $this->post('/api/payments/manual/submit', [
+            'order_id' => $order->public_id,
+            'channel' => 'instapay',
+            'transaction_id' => 'CAP-REF-4',
+            'sender_identifier' => '01000000000',
+            'transferred_at' => now()->toDateTimeString(),
+            'submitted_amount' => 350,
+            'receipt' => UploadedFile::fake()->image('receipt-4.jpg'),
+        ], ['Accept' => 'application/json'])
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'This order has reached the maximum number of receipt submissions. Contact support for help.');
+    }
+
     public function test_admin_payment_destination_overrides_environment_and_abandoned_orders_expire(): void
     {
         PlatformSetting::create(['key' => 'instapay_destination', 'value' => 'admin@instapay', 'group' => 'general']);
@@ -142,7 +245,7 @@ class ManualPaymentWorkflowTest extends TestCase
 
     public function test_dangerous_receipt_extensions_are_rejected_even_with_image_mime(): void
     {
-        $this->withoutMiddleware(\Illuminate\Routing\Middleware\ThrottleRequests::class);
+        $this->withoutMiddleware(ThrottleRequests::class);
         $student = User::factory()->create(['role' => 'student']);
         $course = $this->course();
         Sanctum::actingAs($student);
@@ -242,6 +345,43 @@ class ManualPaymentWorkflowTest extends TestCase
         ])->assertRedirect();
 
         $this->assertDatabaseHas('manual_payment_submissions', ['id' => $submission->id, 'status' => 'approved']);
+    }
+
+    public function test_competing_review_decisions_cannot_process_a_submission_twice(): void
+    {
+        $student = User::factory()->create(['role' => 'student']);
+        Sanctum::actingAs($student);
+        $session = $this->postJson('/api/payments/checkout', [
+            'course_id' => $this->course()->id,
+            'payment_method' => 'instapay',
+        ])->assertCreated()->json('session_id');
+        $this->post('/api/payments/manual/submit', [
+            'session_id' => $session,
+            'channel' => 'instapay',
+            'transaction_id' => 'REVIEW-RACE-1',
+            'sender_identifier' => '01000000000',
+            'transferred_at' => now()->toDateTimeString(),
+            'submitted_amount' => 350,
+            'receipt' => UploadedFile::fake()->image('review-race.jpg'),
+        ], ['Accept' => 'application/json'])->assertCreated();
+        $submission = ManualPaymentSubmission::firstOrFail();
+        $finance = User::factory()->create(['role' => 'admin', 'admin_role' => 'finance_manager']);
+
+        $this->actingAs($finance)->post(route('admin.payment-reviews.review', $submission), [
+            'decision' => 'approved',
+        ])->assertRedirect();
+        $this->post(route('admin.payment-reviews.review', $submission), [
+            'decision' => 'rejected',
+            'review_note' => 'A competing reviewer rejected the same evidence.',
+        ])->assertSessionHasErrors('review');
+
+        $this->assertDatabaseHas('manual_payment_submissions', [
+            'id' => $submission->id,
+            'status' => 'approved',
+            'reviewed_by' => $finance->id,
+        ]);
+        $this->assertDatabaseCount('enrollments', 1);
+        $this->assertDatabaseCount('invoices', 1);
     }
 
     private function course(string $id = 'manual-course'): Course
