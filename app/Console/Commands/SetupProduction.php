@@ -41,8 +41,13 @@ class SetupProduction extends Command
 
             $result = Cache::lock('production-setup', 300)->get(fn () => DB::transaction(function () use ($admins, $referenceData): array {
                 $createdAdmin = $admins->ensure();
+                $created = ['super_admin' => (int) $createdAdmin, ...$referenceData->ensure()];
+                $totals = [];
+                foreach ($created as $type => $count) {
+                    $totals[$type] = $type === 'super_admin' ? $admins->superAdminCount() : DB::table($type)->count();
+                }
 
-                return ['super_admin' => (int) $createdAdmin, ...$referenceData->ensure()];
+                return ['created' => $created, 'totals' => $totals];
             }));
 
             if ($result === false) {
@@ -66,8 +71,8 @@ class SetupProduction extends Command
             return self::FAILURE;
         }
 
-        $this->table(['Record type', 'Created'], collect($result)->map(fn (int $count, string $type) => [$type, $count])->values()->all());
-        $this->info($result['super_admin'] ? 'Initial super administrator created.' : 'Existing super administrator preserved.');
+        $this->table(['Record type', 'Created', 'Total'], collect($result['created'])->map(fn (int $count, string $type) => [$type, $count, $result['totals'][$type]])->values()->all());
+        $this->info($result['created']['super_admin'] ? 'Initial super administrator created.' : 'Existing super administrator preserved.');
         $this->info('Production setup complete. Existing records were preserved; no demo content was created.');
 
         return self::SUCCESS;

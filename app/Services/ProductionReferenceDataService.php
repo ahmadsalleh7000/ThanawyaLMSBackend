@@ -9,6 +9,7 @@ use App\Models\AcademicYear;
 use App\Models\NotificationTemplate;
 use App\Models\Subject;
 use App\Models\SubscriptionPlan;
+use DomainException;
 
 class ProductionReferenceDataService
 {
@@ -20,6 +21,13 @@ class ProductionReferenceDataService
      */
     public function ensure(): array
     {
+        foreach (['subscription_plans', 'notification_templates', 'academic_grades', 'academic_terms', 'subjects'] as $key) {
+            $defaults = config('production_setup.'.$key);
+            if (! is_array($defaults) || $defaults === []) {
+                throw new DomainException('Production reference configuration is missing or empty. Rebuild it with php artisan config:cache and retry.');
+            }
+        }
+
         $created = array_fill_keys([
             'subscription_plans',
             'notification_templates',

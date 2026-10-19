@@ -10,6 +10,7 @@ use App\Services\ReleaseReadinessService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -34,6 +35,47 @@ class ProductionSetupTest extends TestCase
     public function test_command_rejects_non_production_without_creating_an_admin(): void
     {
         $this->artisan('production:setup')->expectsOutputToContain('requires APP_ENV=production')->assertFailed();
+        $this->assertDatabaseEmpty('users');
+        $this->assertDatabaseEmpty('audit_logs');
+    }
+
+    public function test_command_populates_empty_reference_tables_and_reports_created_and_total_counts(): void
+    {
+        foreach ([
+            'subscription_plan_academic_term', 'academic_subjects', 'academic_terms',
+            'academic_years', 'academic_grades', 'subjects', 'notification_templates', 'subscription_plans',
+        ] as $table) {
+            DB::table($table)->delete();
+        }
+        $this->app->detectEnvironment(fn () => 'production');
+        $totals = [
+            'super_admin' => 1,
+            'subscription_plans' => 2,
+            'notification_templates' => 6,
+            'academic_grades' => 3,
+            'academic_years' => 1,
+            'academic_terms' => 6,
+            'subjects' => 1,
+            'academic_subjects' => 6,
+            'subscription_plan_academic_term' => 12,
+        ];
+
+        $this->artisan('production:setup')
+            ->expectsTable(['Record type', 'Created', 'Total'], collect($totals)->map(fn (int $total, string $type) => [$type, $total, $total])->values()->all())
+            ->assertSuccessful();
+
+        $this->artisan('production:setup')
+            ->expectsTable(['Record type', 'Created', 'Total'], collect($totals)->map(fn (int $total, string $type) => [$type, 0, $total])->values()->all())
+            ->assertSuccessful();
+    }
+
+    public function test_missing_reference_configuration_fails_clearly_and_rolls_back_admin_creation(): void
+    {
+        $this->app->detectEnvironment(fn () => 'production');
+        config(['production_setup' => null]);
+
+        $this->artisan('production:setup')->expectsOutputToContain('Rebuild it with php artisan config:cache')->assertFailed();
+
         $this->assertDatabaseEmpty('users');
         $this->assertDatabaseEmpty('audit_logs');
     }

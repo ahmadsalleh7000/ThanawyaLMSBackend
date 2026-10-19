@@ -188,6 +188,9 @@ defaults until configured through admin; no demo courses, students, or payments 
 created. The bootstrap password must be at least 12 characters and at most 72 bytes;
 it is never printed. Existing accounts are never promoted or reactivated.
 
+The output distinguishes records created by the current run from total records in
+each table. A zero under `Created` does not indicate an empty table; check `Total`.
+
 After verifying login, remove bootstrap credentials and refresh the configuration
 cache. Repeat setup and release checks accept an existing active super administrator
 without those credentials. Review initial subscription prices and academic dates

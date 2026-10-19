@@ -16,6 +16,11 @@ class ProductionAdminService
         return $this->superAdmins()->where('is_active', true)->exists();
     }
 
+    public function superAdminCount(): int
+    {
+        return $this->superAdmins()->count();
+    }
+
     public function hasConfiguredCredentials(): bool
     {
         return $this->credentialsValidator()->passes();

@@ -10,6 +10,7 @@ use App\Models\NotificationTemplate;
 use App\Models\Subject;
 use App\Models\SubscriptionPlan;
 use App\Services\ProductionReferenceDataService;
+use DomainException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -51,6 +52,40 @@ class ProductionReferenceDataTest extends TestCase
         }
 
         $this->assertSame(array_fill_keys(array_keys($created), 0), app(ProductionReferenceDataService::class)->ensure());
+    }
+
+    #[DataProvider('missingReferenceConfiguration')]
+    public function test_incomplete_configuration_fails_before_any_reference_records_are_created(string $key, mixed $value): void
+    {
+        $this->clearReferenceData();
+        config([$key => $value]);
+
+        try {
+            app(ProductionReferenceDataService::class)->ensure();
+            $this->fail('Production setup must reject incomplete reference configuration.');
+        } catch (DomainException $exception) {
+            $this->assertSame('Production reference configuration is missing or empty. Rebuild it with php artisan config:cache and retry.', $exception->getMessage());
+        }
+
+        foreach ([
+            'subscription_plans', 'notification_templates', 'academic_grades', 'academic_years',
+            'academic_terms', 'subjects', 'academic_subjects', 'subscription_plan_academic_term',
+        ] as $table) {
+            $this->assertDatabaseEmpty($table);
+        }
+    }
+
+    public static function missingReferenceConfiguration(): array
+    {
+        return [
+            'missing root configuration' => ['production_setup', null],
+            'empty subscription plans' => ['production_setup.subscription_plans', []],
+            'empty notification templates' => ['production_setup.notification_templates', []],
+            'empty academic grades' => ['production_setup.academic_grades', []],
+            'empty academic terms' => ['production_setup.academic_terms', []],
+            'empty subjects' => ['production_setup.subjects', []],
+            'invalid mandatory list' => ['production_setup.subjects', 'programming'],
+        ];
     }
 
     public function test_existing_prices_disabled_records_templates_and_restricted_scopes_are_preserved(): void
