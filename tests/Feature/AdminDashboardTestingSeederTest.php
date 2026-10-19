@@ -9,12 +9,10 @@ use App\Models\StudentSupportCase;
 use App\Models\User;
 use App\Models\UserNotification;
 use Database\Seeders\AdminDashboardTestingSeeder;
-use Database\Seeders\AdminDemoSeeder;
 use Database\Seeders\AdminNotificationDemoSeeder;
+use Database\Seeders\AdminTestingSeeder;
 use Database\Seeders\DatabaseSeeder;
-use Database\Seeders\EngagementDemoSeeder;
 use Database\Seeders\LocalDevelopmentSeeder;
-use Database\Seeders\ParentDemoSeeder;
 use Database\Seeders\QuestionBankTestingSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use RuntimeException;
@@ -26,7 +24,7 @@ class AdminDashboardTestingSeederTest extends TestCase
 
     public function test_dashboard_seed_data_is_created_once_and_exercises_role_specific_queues(): void
     {
-        $this->seed(DatabaseSeeder::class);
+        $this->seed(AdminTestingSeeder::class);
 
         $counts = [
             'users' => User::count(),
@@ -37,7 +35,7 @@ class AdminDashboardTestingSeederTest extends TestCase
             'notifications' => UserNotification::count(),
         ];
 
-        $this->seed(DatabaseSeeder::class);
+        $this->seed(AdminTestingSeeder::class);
 
         $this->assertSame($counts['users'], User::count());
         $this->assertSame($counts['payments'], ManualPaymentSubmission::count());
@@ -70,9 +68,7 @@ class AdminDashboardTestingSeederTest extends TestCase
             foreach ([
                 DatabaseSeeder::class,
                 LocalDevelopmentSeeder::class,
-                AdminDemoSeeder::class,
-                ParentDemoSeeder::class,
-                EngagementDemoSeeder::class,
+                AdminTestingSeeder::class,
                 AdminDashboardTestingSeeder::class,
                 AdminNotificationDemoSeeder::class,
                 QuestionBankTestingSeeder::class,

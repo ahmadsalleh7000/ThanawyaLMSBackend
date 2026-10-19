@@ -14,6 +14,7 @@ use App\Models\StudentSupportCase;
 use App\Models\User;
 use Database\Seeders\Concerns\EnsuresNonProductionSeedEnvironment;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class AdminDashboardTestingSeeder extends Seeder
@@ -32,20 +33,22 @@ class AdminDashboardTestingSeeder extends Seeder
             return;
         }
 
-        $staff = $this->staff();
-        $students = $this->students();
-        $courses = $this->courses();
+        DB::transaction(function (): void {
+            $staff = $this->staff();
+            $students = $this->students();
+            $courses = $this->courses();
 
-        $this->payments($students, $courses, $staff['finance']);
-        $this->studentSupport($students, $staff['support']);
-        $this->operations($staff['super']);
-        $this->communication($staff['support'], $courses['published']);
+            $this->payments($students, $courses, $staff['finance']);
+            $this->studentSupport($students, $staff['support']);
+            $this->operations($staff['super']);
+            $this->communication($staff['support'], $courses['published']);
 
-        PlatformSetting::create([
-            'key' => self::MARKER,
-            'value' => ['version' => 1, 'seeded_at' => now()->toISOString()],
-            'group' => 'testing',
-        ]);
+            PlatformSetting::create([
+                'key' => self::MARKER,
+                'value' => ['version' => 1, 'seeded_at' => now()->toISOString()],
+                'group' => 'testing',
+            ]);
+        });
     }
 
     private function staff(): array

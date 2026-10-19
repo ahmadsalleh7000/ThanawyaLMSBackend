@@ -39,11 +39,6 @@ class LocalDevelopmentSeeder extends Seeder
                 return [$course->id => $course];
             });
 
-            Course::where('id', 'react-1')->update([
-                'is_published' => false,
-                'archived_at' => now(),
-            ]);
-
             $this->assessment($courses['python-1']);
             $users['student']->enrollments()->firstOrCreate(
                 ['course_id' => 'python-1'],
@@ -87,17 +82,49 @@ class LocalDevelopmentSeeder extends Seeder
     private function courseDefinitions(): array
     {
         return [
-            $this->course('python-1', 'بايثون من البداية', 'Python from the Beginning', 'ابدأ بأساسيات البرمجة وابنِ مشاريع صغيرة خطوة بخطوة.', 'Master programming foundations through practical Python projects.', 'Programming', 'grade-1', 'semester-1', 'Beginner', 480, 0, 4.8, 1280, 'أحمد النجار', 'Ahmed Al-Naggar', 'curriculum-support', [
+            $this->course('python-1', [
+                'title' => 'بايثون من البداية',
+                'title_en' => 'Python from the Beginning',
+                'summary' => 'ابدأ بأساسيات البرمجة وابنِ مشاريع صغيرة خطوة بخطوة.',
+                'summary_en' => 'Master programming foundations through practical Python projects.',
+                'category' => 'Programming',
+                'instructor' => 'أحمد النجار',
+                'instructor_en' => 'Ahmed Al-Naggar',
+                'price' => 0,
+            ], [
                 $this->lesson('intro-python', 'مقدمة إلى بايثون', 'Introduction to Python', 18, 1, true),
                 $this->lesson('variables', 'المتغيرات وأنواع البيانات', 'Variables and data types', 24, 2),
                 $this->lesson('conditions', 'الشروط واتخاذ القرار', 'Conditions and decisions', 26, 3),
             ]),
-            $this->course('web-1', 'أساسيات تطوير الويب', 'Web Development Foundations', 'تعلّم HTML وCSS وأنشئ صفحات متجاوبة.', 'Create responsive pages with modern HTML and CSS.', 'Web Development', 'grade-1', 'semester-2', 'Beginner', 420, 250, 4.7, 870, 'سارة محمود', 'Sara Mahmoud', 'curriculum-support', [
+            $this->course('web-1', [
+                'title' => 'أساسيات تطوير الويب',
+                'title_en' => 'Web Development Foundations',
+                'summary' => 'تعلّم HTML وCSS وأنشئ صفحات متجاوبة.',
+                'summary_en' => 'Create responsive pages with modern HTML and CSS.',
+                'category' => 'Web Development',
+                'semester' => 'semester-2',
+                'instructor' => 'سارة محمود',
+                'instructor_en' => 'Sara Mahmoud',
+                'price' => 250,
+            ], [
                 $this->lesson('web-intro', 'كيف يعمل الويب؟', 'How the web works', 16, 1, true),
                 $this->lesson('html', 'بناء الصفحة باستخدام HTML', 'Building with HTML', 28, 2),
                 $this->lesson('css', 'التنسيق باستخدام CSS', 'Styling with CSS', 31, 3),
             ]),
-            $this->course('nodejs-1', 'تطوير الخلفية باستخدام Node.js', 'Backend Development with Node.js', 'أنشئ واجهات API وخدمات خلفية منظمة.', 'Build structured APIs and backend services.', 'Backend', 'grade-2', 'semester-2', 'Intermediate', 610, 400, 4.6, 540, 'عمر شريف', 'Omar Sherif', 'academy-extension', [
+            $this->course('nodejs-1', [
+                'title' => 'تطوير الخلفية باستخدام Node.js',
+                'title_en' => 'Backend Development with Node.js',
+                'summary' => 'أنشئ واجهات API وخدمات خلفية منظمة.',
+                'summary_en' => 'Build structured APIs and backend services.',
+                'category' => 'Backend',
+                'grade' => 'grade-2',
+                'semester' => 'semester-2',
+                'level' => 'Intermediate',
+                'track_type' => 'academy-extension',
+                'instructor' => 'عمر شريف',
+                'instructor_en' => 'Omar Sherif',
+                'price' => 400,
+            ], [
                 $this->lesson('node-intro', 'مقدمة إلى Node.js', 'Introduction to Node.js', 22, 1, true),
                 $this->lesson('express', 'بناء API باستخدام Express', 'Building APIs with Express', 35, 2),
                 $this->lesson('database', 'ربط قاعدة البيانات', 'Connecting a database', 34, 3),
@@ -105,10 +132,25 @@ class LocalDevelopmentSeeder extends Seeder
         ];
     }
 
-    /** @param array<int, array<string, mixed>> $lessons */
-    private function course(string $id, string $title, string $titleEn, string $summary, string $summaryEn, string $category, string $grade, string $semester, string $level, int $duration, int $price, float $rating, int $enrolled, string $instructor, string $instructorEn, string $trackType, array $lessons): array
+    /**
+     * @param  array<string, mixed>  $attributes
+     * @param  array<int, array<string, mixed>>  $lessons
+     * @return array<string, mixed>
+     */
+    private function course(string $id, array $attributes, array $lessons): array
     {
-        return ['id' => $id, 'title' => $title, 'title_en' => $titleEn, 'summary' => $summary, 'summary_en' => $summaryEn, 'description' => $summary, 'description_en' => $summaryEn, 'category' => $category, 'grade' => $grade, 'semester' => $semester, 'unit' => 'Programming Foundations', 'track_type' => $trackType, 'level' => $level, 'duration_minutes' => $duration, 'price' => $price, 'rating' => $rating, 'enrolled_count' => $enrolled, 'instructor' => $instructor, 'instructor_en' => $instructorEn, 'is_published' => true, 'lessons' => $lessons];
+        return $attributes + [
+            'id' => $id,
+            'description' => $attributes['summary'],
+            'description_en' => $attributes['summary_en'],
+            'grade' => 'grade-1',
+            'semester' => 'semester-1',
+            'track_type' => 'curriculum-support',
+            'level' => 'Beginner',
+            'duration_minutes' => array_sum(array_column($lessons, 'duration_minutes')),
+            'is_published' => true,
+            'lessons' => $lessons,
+        ];
     }
 
     private function lesson(string $slug, string $title, string $titleEn, int $duration, int $position, bool $preview = false): array

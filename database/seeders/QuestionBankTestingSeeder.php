@@ -7,6 +7,7 @@ use App\Models\QuestionBankQuestion;
 use App\Models\User;
 use Database\Seeders\Concerns\EnsuresNonProductionSeedEnvironment;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 class QuestionBankTestingSeeder extends Seeder
 {
@@ -23,14 +24,18 @@ class QuestionBankTestingSeeder extends Seeder
             return;
         }
 
-        $creator = User::where('email', 'content.dashboard@test.local')->first()
-            ?? User::factory()->create(['name' => 'محرر بنك الأسئلة', 'email' => 'content.dashboard@test.local', 'password' => 'TestingPassword123!', 'role' => User::ROLE_ADMIN, 'admin_role' => 'content_editor']);
+        DB::transaction(function (): void {
+            $creator = User::firstOrCreate(
+                ['email' => 'content.dashboard@test.local'],
+                ['name' => 'محرر بنك الأسئلة', 'password' => 'TestingPassword123!', 'role' => User::ROLE_ADMIN, 'admin_role' => 'content_editor', 'is_active' => true],
+            );
 
-        foreach ($this->questions() as $index => $question) {
-            QuestionBankQuestion::create($question + ['created_by' => $creator->id, 'is_active' => $index !== 9]);
-        }
+            foreach ($this->questions() as $index => $question) {
+                QuestionBankQuestion::create($question + ['created_by' => $creator->id, 'is_active' => $index !== 9]);
+            }
 
-        PlatformSetting::create(['key' => self::MARKER, 'value' => ['version' => 1, 'seeded_at' => now()->toISOString()], 'group' => 'testing']);
+            PlatformSetting::create(['key' => self::MARKER, 'value' => ['version' => 1, 'seeded_at' => now()->toISOString()], 'group' => 'testing']);
+        });
     }
 
     private function questions(): array

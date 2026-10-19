@@ -28,11 +28,29 @@ VITE_USE_MOCK_API=false
 VITE_API_URL=http://localhost:8000/api
 ```
 
-Demo accounts:
+`php artisan db:seed` loads only the local development dataset: one student, one linked
+parent, one administrator, three sample courses with lessons, and a Python assessment
+and enrollment. Course durations match the lessons; ratings and enrollment counters
+start at zero. Rerunning it preserves existing local edits and passwords.
 
-- Student: `student@ahmed-lms.test` / `password`
-- Parent: `parent@ahmed-lms.test` / `password`
-- Administrator (local only): `admin@ahmed-lms.test` / `password`
+Local accounts (all use `password123`):
+
+- Student: `student@ahmed-lms.local`
+- Parent: `parent@ahmed-lms.local`
+- Administrator: `admin@ahmed-lms.local`
+
+Additional administrator QA scenarios are optional:
+
+```bash
+php artisan db:seed --class=AdminTestingSeeder
+```
+
+This adds role-specific staff accounts, dashboard courses, payment-review scenarios,
+support cases, incidents, notifications, and question-bank examples. Its staff emails
+are `{admin,finance,reviewer,content,support}.dashboard@test.local`; the password is
+`TestingPassword123!`. Each fixture is applied once and can be requested separately
+through its own seeder class. All local and QA seeders reject production execution.
+They do not remove records from an existing database.
 
 ## Laravel admin portal
 

@@ -16,12 +16,6 @@ class DatabaseSeeder extends Seeder
 
         $this->call([
             LocalDevelopmentSeeder::class,
-            AdminDemoSeeder::class,
-            ParentDemoSeeder::class,
-            EngagementDemoSeeder::class,
-            AdminDashboardTestingSeeder::class,
-            AdminNotificationDemoSeeder::class,
-            QuestionBankTestingSeeder::class,
         ]);
     }
 }
