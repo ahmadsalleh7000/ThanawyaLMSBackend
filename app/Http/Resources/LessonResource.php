@@ -15,9 +15,10 @@ class LessonResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $student = $request->user('sanctum');
         $canAccessContent = $this->is_preview
             || (bool) $this->getAttribute('content_access_granted')
-            || $request->user()?->isAdmin();
+            || $student?->isAdmin();
         $assets = $canAccessContent && $this->relationLoaded('mediaAssets')
             ? $this->mediaAssets->filter(fn ($asset) => ! $asset->libraryItem || ($asset->libraryItem->processing_status === 'ready' && ! $asset->libraryItem->archived_at))
             : collect();
@@ -29,8 +30,8 @@ class LessonResource extends JsonResource
         $contentPdfTitle = $pdfAsset
             ? pathinfo($pdfAsset->original_name, PATHINFO_FILENAME)
             : $this->content_pdf_title;
-        $workspace = $canAccessContent && $request->user()
-            ? $request->user()->lessonWorkspaceStates()->where('lesson_id', $this->id)->first()
+        $workspace = $canAccessContent && $student
+            ? $student->lessonWorkspaceStates()->where('lesson_id', $this->id)->first()
             : null;
         $trainings = $canAccessContent && $this->relationLoaded('trainings')
             ? $this->trainings->filter(fn ($training) => $training->status === 'published')
@@ -41,6 +42,8 @@ class LessonResource extends JsonResource
         $sections = $canAccessContent && $this->relationLoaded('sections')
             ? $this->sections->filter(fn ($section) => $section->visibleOnWeb())
             : collect();
+
+        $studentId = $student?->id;
 
         return ['id' => $this->slug, 'databaseId' => $this->id, 'title' => $this->title, 'titleEn' => $this->title_en, 'duration' => $this->duration_minutes.'m', 'durationMinutes' => (int) $this->duration_minutes, 'preview' => $this->is_preview, 'videoUrl' => $canAccessContent ? $this->video_url : null, 'assignments' => $assignments->map(fn ($assignment) => [
             'id' => $assignment->id,
@@ -67,19 +70,37 @@ class LessonResource extends JsonResource
             'contentOpened' => (bool) $workspace?->content_opened_at,
             'practicePassed' => (bool) $workspace?->practice_passed_at,
             'playbackSeconds' => (int) ($workspace?->playback_seconds ?? 0),
-        ], 'trainings' => $trainings->map(fn ($training) => [
-            'id' => $training->id,
-            'type' => $training->type,
-            'title' => $training->title_ar,
-            'titleEn' => $training->title_en,
-            'instructions' => $training->instructions_ar,
-            'instructionsEn' => $training->instructions_en,
-            'isRequired' => (bool) $training->is_required,
-            'passingScore' => $training->passing_score,
-            'questionsCount' => $training->question_bank_quiz_id && $training->relationLoaded('quiz') && $training->quiz
-                ? $training->quiz->questions->count()
-                : ($training->questions_count ?? ($training->relationLoaded('questions') ? $training->questions->count() : 0)),
-        ])->values(), 'media' => $assets->map(fn ($asset) => ['id' => $asset->id, 'kind' => $asset->kind, 'name' => $asset->original_name, 'mimeType' => $asset->mime_type, 'size' => $asset->size_bytes])->values(), 'transcript' => $canAccessContent ? $this->transcript : null, 'transcriptEn' => $canAccessContent ? $this->transcript_en : null, 'captions' => $canAccessContent ? ($this->captions ?: []) : []];
+        ], 'trainings' => $trainings->map(function ($training) use ($studentId) {
+            $bestAttempt = $studentId
+                ? $training->attempts()
+                    ->where('student_id', $studentId)
+                    ->whereNotNull('submitted_at')
+                    ->orderByDesc('score')
+                    ->orderByDesc('submitted_at')
+                    ->first()
+                : null;
+
+            return [
+                'id' => $training->id,
+                'type' => $training->type,
+                'title' => $training->title_ar,
+                'titleEn' => $training->title_en,
+                'instructions' => $training->instructions_ar,
+                'instructionsEn' => $training->instructions_en,
+                'isRequired' => (bool) $training->is_required,
+                'passingScore' => $training->passing_score,
+                'questionsCount' => $training->question_bank_quiz_id && $training->relationLoaded('quiz') && $training->quiz
+                    ? $training->quiz->questions->count()
+                    : ($training->questions_count ?? ($training->relationLoaded('questions') ? $training->questions->count() : 0)),
+                'bestAttempt' => $bestAttempt ? [
+                    'id' => $bestAttempt->id,
+                    'score' => (float) $bestAttempt->score,
+                    'status' => $bestAttempt->status,
+                    'passed' => $bestAttempt->status === 'passed',
+                    'submittedAt' => $bestAttempt->submitted_at?->toISOString(),
+                ] : null,
+            ];
+        })->values(), 'media' => $assets->map(fn ($asset) => ['id' => $asset->id, 'kind' => $asset->kind, 'name' => $asset->original_name, 'mimeType' => $asset->mime_type, 'size' => $asset->size_bytes])->values(), 'transcript' => $canAccessContent ? $this->transcript : null, 'transcriptEn' => $canAccessContent ? $this->transcript_en : null, 'captions' => $canAccessContent ? ($this->captions ?: []) : []];
     }
 
     private function sectionContent($section, $assets): array

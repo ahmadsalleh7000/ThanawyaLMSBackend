@@ -32,7 +32,7 @@ class UnitWorkbookService
             'course' => $unit->course,
             'lessons' => $lessons,
             'printDate' => now(),
-            'brandName' => config('app.name', 'Ahmed LMS'),
+            'brandName' => config('app.name', 'TIBYAN'),
             'edition' => $edition,
             'includeAnswerKey' => $edition === 'teacher',
         ];

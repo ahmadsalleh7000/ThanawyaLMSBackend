@@ -38,7 +38,7 @@ class LessonWorkbookService
             'practice' => $practice,
             'pdfUrl' => $this->lessonPdfUrl($lesson),
             'printDate' => now(),
-            'brandName' => config('app.name', 'Ahmed LMS'),
+            'brandName' => config('app.name', 'TIBYAN'),
             'edition' => $edition,
             'includeAnswerKey' => $edition === 'teacher' || (bool) $lesson->include_workbook_answer_key,
         ];

@@ -36,8 +36,8 @@ class SendGuardianWelcomeCredentials implements ShouldBeEncrypted, ShouldQueue
         $loginUrl = rtrim((string) config('app.frontend_url'), '/').'/login';
         $localPhone = preg_replace('/^\+20/', '0', $delivery->recipient);
         $message = $this->newAccount
-            ? "مرحباً بك في أكاديمية أحمد. تم اعتماد تسجيل {$this->studentName} وإنشاء حساب ولي الأمر.\nاسم الدخول: {$localPhone}\nكلمة المرور المؤقتة: {$this->temporaryPassword}\nتسجيل الدخول: {$loginUrl}\nسيُطلب منك إنشاء كلمة مرور جديدة فور الدخول. لا تشارك بياناتك مع أي شخص."
-            : "مرحباً، تم ربط {$this->studentName} بحساب ولي الأمر في أكاديمية أحمد. يمكنك متابعة تقدمه من حسابك الحالي: {$loginUrl}";
+            ? "مرحباً بك في تِبيان. تم اعتماد تسجيل {$this->studentName} وإنشاء حساب ولي الأمر.\nاسم الدخول: {$localPhone}\nكلمة المرور المؤقتة: {$this->temporaryPassword}\nتسجيل الدخول: {$loginUrl}\nسيُطلب منك إنشاء كلمة مرور جديدة فور الدخول. لا تشارك بياناتك مع أي شخص."
+            : "مرحباً، تم ربط {$this->studentName} بحساب ولي الأمر في تِبيان. يمكنك متابعة تقدمه من حسابك الحالي: {$loginUrl}";
 
         try {
             $providerId = $transport->send($delivery->recipient, $message, (int) $delivery->guardian_invitation_id);

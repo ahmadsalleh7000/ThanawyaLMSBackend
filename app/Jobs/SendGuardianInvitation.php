@@ -40,7 +40,7 @@ class SendGuardianInvitation implements ShouldBeEncrypted, ShouldQueue
         $delivery->update(['status' => 'sending', 'attempts' => $delivery->attempts + 1, 'last_error' => null]);
         $url = rtrim((string) config('app.frontend_url'), '/').'/guardian-invitation/'.$this->plainTextToken;
         $studentName = $invitation->student?->name ?? 'الطالب';
-        $message = "دعاك {$studentName} لربط حساب ولي الأمر في Ahmed LMS. الرابط صالح لفترة محدودة: {$url}";
+        $message = "دعاك {$studentName} لربط حساب ولي الأمر في TIBYAN. الرابط صالح لفترة محدودة: {$url}";
 
         try {
             $providerId = $transport->send($delivery->recipient, $message, $invitation->id);

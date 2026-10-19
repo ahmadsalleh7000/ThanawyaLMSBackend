@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Cache;
 class PlatformSettingsService
 {
     public const DEFAULTS = [
-        'academy_name_ar' => 'أكاديمية أحمد', 'academy_name_en' => 'Ahmed LMS',
+        'academy_name_ar' => 'تِبيان', 'academy_name_en' => 'TIBYAN',
         'support_email' => 'support@example.com', 'default_locale' => 'ar',
         'registration_enabled' => true, 'maintenance_banner_enabled' => false,
         'maintenance_banner_ar' => '', 'maintenance_banner_en' => '',
