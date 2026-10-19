@@ -173,6 +173,27 @@ php artisan route:list --path=api
 
 ## Production deployment
 
+After migrations, set `ADMIN_NAME`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` in the
+production environment or secret manager, refresh cached configuration, and run:
+
+```bash
+php artisan production:setup
+```
+
+This command requires `APP_ENV=production`. It creates the first super administrator
+and inserts missing subscription plans, notification templates, grades, academic-year
+terms, and programming subject records. Existing passwords, prices, disabled records,
+content, and subscription scopes are preserved. Platform settings retain their code
+defaults until configured through admin; no demo courses, students, or payments are
+created. The bootstrap password must be at least 12 characters and at most 72 bytes;
+it is never printed. Existing accounts are never promoted or reactivated.
+
+After verifying login, remove bootstrap credentials and refresh the configuration
+cache. Repeat setup and release checks accept an existing active super administrator
+without those credentials. Review initial subscription prices and academic dates
+before opening registration. Concurrent setup runs are locked and database changes
+commit together or roll back together.
+
 Production-safe environment templates are provided in `.env.production.example`. Run
 `php artisan ops:release-check` before releasing; it blocks unsafe environment, HTTPS, session,
 queue, mail, payment, proxy trust, token-expiry, administrator, and backup configuration without

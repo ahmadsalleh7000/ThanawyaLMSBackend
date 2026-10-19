@@ -19,6 +19,7 @@ class ReleaseReadinessTest extends TestCase
             'app.key' => 'base64:'.base64_encode(random_bytes(32)),
             'app.url' => 'https://api.ahmed-lms.example',
             'deployment.frontend_url' => 'https://ahmed-lms.example',
+            'deployment.admin_name' => 'Production Owner',
             'deployment.admin_email' => 'owner@ahmed-lms.example',
             'deployment.admin_password' => 'a-unique-production-secret',
             'deployment.backup_disk' => 's3',

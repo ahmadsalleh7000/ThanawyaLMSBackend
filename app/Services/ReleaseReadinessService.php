@@ -2,7 +2,9 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use Throwable;
 
 class ReleaseReadinessService
 {
@@ -81,10 +83,8 @@ class ReleaseReadinessService
                 'Configure at least one manual payment destination or complete Stripe credentials.',
             ),
             'admin_credentials' => $this->result(
-                filter_var(config('deployment.admin_email'), FILTER_VALIDATE_EMAIL) !== false
-                    && filled(config('deployment.admin_password'))
-                    && ! in_array(config('deployment.admin_password'), ['password', 'admin', 'changeme'], true),
-                'Replace the default administrator credentials.',
+                $this->administratorReady(),
+                'Provision an active super administrator or configure ADMIN_NAME, ADMIN_EMAIL and ADMIN_PASSWORD (at least 12 characters, at most 72 bytes).',
             ),
             'backup_disk' => $this->result(
                 filled(config('deployment.backup_disk'))
@@ -97,6 +97,20 @@ class ReleaseReadinessService
     public function ready(): bool
     {
         return collect($this->checks())->every('ok');
+    }
+
+    private function administratorReady(): bool
+    {
+        $admins = app(ProductionAdminService::class);
+        if ($admins->hasConfiguredCredentials()) {
+            return true;
+        }
+
+        try {
+            return app()->environment('production') && Schema::hasTable('users') && $admins->hasActiveSuperAdmin();
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     /** @return array{ok: bool, message: string} */
