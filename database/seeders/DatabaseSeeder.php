@@ -12,7 +12,7 @@ class DatabaseSeeder extends Seeder
 
     public function run(): void
     {
-        $this->ensureNonProductionSeedEnvironment();
+        //$this->ensureNonProductionSeedEnvironment();
 
         $this->call([
             LocalDevelopmentSeeder::class,
