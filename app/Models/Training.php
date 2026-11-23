@@ -6,12 +6,12 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 
-#[Fillable(['trainable_type', 'trainable_id', 'question_bank_quiz_id', 'type', 'title_ar', 'title_en', 'instructions_ar', 'instructions_en', 'position', 'status', 'is_required', 'passing_score', 'available_from', 'available_until'])]
+#[Fillable(['duration_minutes', 'allow_question_navigation', 'trainable_type', 'trainable_id', 'question_bank_quiz_id', 'type', 'title_ar', 'title_en', 'instructions_ar', 'instructions_en', 'position', 'status', 'is_required', 'passing_score', 'available_from', 'available_until', 'max_retries', 'retry_delay_minutes', 'allow_retake_after_pass', 'randomize_options', 'show_correct_answers', 'show_explanations', 'require_all_answers', 'randomize_questions', 'question_limit', 'excluded_question_ids'])]
 class Training extends Model
 {
     protected function casts(): array
     {
-        return ['is_required' => 'boolean', 'available_from' => 'datetime', 'available_until' => 'datetime'];
+        return ['duration_minutes' => 'integer', 'allow_question_navigation' => 'boolean', 'is_required' => 'boolean', 'available_from' => 'datetime', 'available_until' => 'datetime', 'allow_retake_after_pass' => 'boolean', 'randomize_options' => 'boolean', 'show_correct_answers' => 'boolean', 'show_explanations' => 'boolean', 'require_all_answers' => 'boolean', 'max_retries' => 'integer', 'retry_delay_minutes' => 'integer', 'question_limit' => 'integer', 'randomize_questions' => 'boolean', 'excluded_question_ids' => 'array'];
     }
 
     public function trainable()
@@ -34,6 +34,11 @@ class Training extends Model
         return $this->hasMany(TrainingAttempt::class);
     }
 
+    public function drafts()
+    {
+        return $this->hasMany(TrainingDraft::class);
+    }
+
     public function prerequisites()
     {
         return $this->hasMany(TrainingPrerequisite::class);
@@ -41,10 +46,8 @@ class Training extends Model
 
     public function questionSet(): Collection
     {
-        if ($this->question_bank_quiz_id && $this->relationLoaded('quiz') && $this->quiz) {
-            return $this->quiz->questions;
-        }
+        $questions = $this->question_bank_quiz_id && $this->quiz ? $this->quiz->questions : $this->questions;
 
-        return $this->questions;
+        return $questions->filter(fn ($question) => $question->is_active && ! in_array($question->id, $this->excluded_question_ids ?? []))->values();
     }
 }

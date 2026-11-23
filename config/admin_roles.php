@@ -30,6 +30,8 @@ return [
         'admin.questions.*' => 'content.manage',
         'admin.media.*' => 'content.manage',
         'admin.media-library.*' => 'content.manage',
+        'admin.exams.*' => 'content.manage',
+        'admin.assignments.*' => 'content.manage',
         'admin.question-bank.*' => 'content.manage',
         'admin.users.*' => 'users.manage',
         'admin.orders.refund' => 'refunds.issue',

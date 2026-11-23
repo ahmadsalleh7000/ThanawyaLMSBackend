@@ -104,6 +104,88 @@ class AssignmentApiTest extends TestCase
         $this->assertDatabaseHas('assignment_submissions', ['id' => $submission->id, 'status' => 'resubmitted', 'body' => 'Revised work']);
     }
 
+    public function test_student_sees_only_their_grade_feedback_and_private_file_after_reload(): void
+    {
+        Storage::fake('local');
+        [$course, $assignment] = $this->assignment();
+        $students = User::factory()->count(2)->create(['role' => User::ROLE_STUDENT]);
+        foreach ($students as $student) {
+            $student->enrollments()->create(['course_id' => $course->id, 'status' => 'active', 'enrolled_at' => now()]);
+        }
+        Storage::disk('local')->put('assignment-submissions/private.txt', 'Private answer');
+        $submission = $assignment->submissions()->create([
+            'user_id' => $students[0]->id, 'body' => 'Private answer', 'status' => 'graded', 'score' => 0,
+            'feedback' => 'Please explain your reasoning.', 'submitted_at' => now(), 'graded_at' => now(),
+            'file_path' => 'assignment-submissions/private.txt', 'file_original_name' => 'private.txt',
+        ]);
+        Sanctum::actingAs($students[0]);
+        $this->getJson($this->url($course, $assignment))->assertOk()->assertJsonPath('data.status', 'graded')->assertJsonPath('data.canSubmit', false)->assertJsonPath('data.submission.score', 0)->assertJsonPath('data.submission.feedback', 'Please explain your reasoning.')->assertJsonMissingPath('data.submission.file_path');
+        $this->getJson('/api/courses/'.$course->id)->assertOk()->assertJsonPath('data.lessons.0.assignments.0.status', 'graded')->assertJsonPath('data.lessons.0.assignments.0.submission.score', 0);
+        $this->get($this->url($course, $assignment).'/file')->assertOk()->assertHeader('content-disposition', 'attachment; filename=private.txt');
+        $this->postJson($this->url($course, $assignment).'/submissions', ['body' => 'Overwrite grade'])->assertUnprocessable();
+        $this->assertSame('graded', $submission->fresh()->status);
+        Sanctum::actingAs($students[1]);
+        $this->getJson($this->url($course, $assignment))->assertOk()->assertJsonPath('data.submission', null);
+        $this->getJson('/api/courses/'.$course->id)->assertOk()->assertJsonPath('data.lessons.0.assignments.0.submission', null);
+        $this->getJson($this->url($course, $assignment).'/file')->assertNotFound();
+    }
+
+    public function test_updates_keep_existing_file_and_replacements_remove_only_the_old_file(): void
+    {
+        Storage::fake('local');
+        [$course, $assignment] = $this->assignment();
+        $assignment->update(['due_at' => now()->subDay()]);
+        $student = User::factory()->create(['role' => User::ROLE_STUDENT]);
+        $student->enrollments()->create(['course_id' => $course->id, 'status' => 'active', 'enrolled_at' => now()]);
+        Sanctum::actingAs($student);
+        $url = $this->url($course, $assignment).'/submissions';
+        $this->postJson($url, ['body' => '   '])->assertUnprocessable();
+        $this->getJson($this->url($course, $assignment))->assertOk()->assertJsonPath('data.status', 'overdue');
+        $this->post($url, ['file' => UploadedFile::fake()->create('original.txt', 10, 'text/plain')])->assertOk()->assertJsonPath('data.status', 'late');
+        $submission = $assignment->submissions()->firstOrFail();
+        $originalPath = $submission->file_path;
+        $this->postJson($url, ['body' => '0'])->assertOk()->assertJsonPath('data.submission.fileName', 'original.txt')->assertJsonPath('data.submission.body', '0');
+        Storage::disk('local')->assertExists($originalPath);
+        $this->post($url, ['body' => 'Replacement', 'file' => UploadedFile::fake()->create('replacement.txt', 10, 'text/plain')])->assertOk()->assertJsonPath('data.submission.fileName', 'replacement.txt');
+        Storage::disk('local')->assertMissing($originalPath);
+        Storage::disk('local')->assertExists($submission->fresh()->file_path);
+        $this->assertCount(1, Storage::disk('local')->allFiles('assignment-submissions'));
+        $this->assertSame(1, $assignment->submissions()->count());
+        $submission->update(['status' => 'returned', 'feedback' => 'Old feedback', 'graded_at' => now(), 'graded_by' => $student->id]);
+        $this->postJson($url, ['body' => 'Revised work'])->assertOk()->assertJsonPath('data.status', 'resubmitted')->assertJsonPath('data.submission.feedback', null)->assertJsonPath('data.submission.gradedAt', null);
+        Storage::disk('local')->assertExists($submission->fresh()->file_path);
+    }
+
+    public function test_assigned_teacher_can_manage_assignments_with_course_scoping_and_pagination(): void
+    {
+        [$course, $assignment] = $this->assignment();
+        $otherCourse = Course::factory()->create();
+        $otherLesson = $otherCourse->lessons()->create(['slug' => 'other', 'title' => 'Other', 'title_en' => 'Other', 'position' => 1]);
+        $other = $otherLesson->assignments()->create(['title' => 'Other task']);
+        $teacher = User::factory()->create(['role' => User::ROLE_TEACHER]);
+        TeacherCourseAssignment::create(['teacher_id' => $teacher->id, 'course_id' => $course->id]);
+        Sanctum::actingAs($teacher);
+        $this->postJson('/api/teacher/courses/'.$course->id.'/lessons/assignment-lesson/assignments', ['title' => 'New task', 'is_published' => false])->assertCreated()->assertJsonPath('data.isPublished', false);
+        $this->putJson('/api/teacher/courses/'.$course->id.'/assignments/'.$assignment->id, ['title' => 'Edited', 'is_published' => false])->assertOk()->assertJsonPath('data.title', 'Edited')->assertJsonPath('data.isPublished', false);
+        $this->getJson('/api/teacher/courses/'.$course->id.'/assignments')->assertOk()->assertJsonPath('total', 2)->assertJsonPath('data.0.lesson.slug', 'assignment-lesson');
+        $this->putJson('/api/teacher/courses/'.$course->id.'/assignments/'.$other->id, ['title' => 'Blocked'])->assertNotFound();
+        $this->getJson('/api/teacher/courses/'.$otherCourse->id.'/assignments')->assertForbidden();
+        $this->postJson('/api/teacher/courses/'.$course->id.'/lessons/other/assignments', ['title' => 'Blocked'])->assertNotFound();
+        foreach (range(1, 22) as $number) {
+            $assignment->lesson->assignments()->create(['title' => 'Task '.$number]);
+        }
+        $this->getJson('/api/teacher/courses/'.$course->id.'/assignments?page=2')->assertOk()->assertJsonPath('total', 24)->assertJsonCount(4, 'data');
+        $students = User::factory()->count(21)->create();
+        foreach ($students as $student) {
+            $assignment->submissions()->create(['user_id' => $student->id, 'status' => 'submitted', 'submitted_at' => now()]);
+        }
+        $this->getJson('/api/teacher/courses/'.$course->id.'/assignments/submissions?assignment_id='.$assignment->id.'&page=2')->assertOk()->assertJsonPath('total', 21)->assertJsonCount(1, 'data');
+        $this->getJson('/api/teacher/courses/'.$course->id.'/assignments/submissions?status=graded')->assertOk()->assertJsonPath('total', 0);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'teacher.assignment.updated']);
+        $course->update(['archived_at' => now()]);
+        $this->putJson('/api/teacher/courses/'.$course->id.'/assignments/'.$assignment->id, ['title' => 'Blocked'])->assertConflict();
+    }
+
     private function assignment(): array
     {
         $course = Course::create(['id' => 'assignment-api-course', 'title' => 'دورة', 'title_en' => 'Course', 'summary' => 'ملخص', 'summary_en' => 'Summary', 'category' => 'Programming', 'scope' => 'academic', 'level' => 'Beginner', 'duration_minutes' => 30, 'price' => 0, 'instructor' => 'أحمد', 'instructor_en' => 'Ahmed', 'is_published' => true]);

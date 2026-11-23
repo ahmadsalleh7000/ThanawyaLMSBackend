@@ -19,8 +19,9 @@ class MediaController extends Controller
     {
         $media->loadMissing(['lesson.course', 'libraryItem']);
         abort_if($media->libraryItem && ($media->libraryItem->processing_status !== 'ready' || $media->libraryItem->archived_at), 409, 'Media is not ready.');
+        $this->ensurePublished($media);
         $allowed = $media->lesson->is_preview || $this->accessService->canAccessMedia($request->user(), $media);
-        abort_unless($allowed, 403, 'An active subscription is required to access this resource.');
+        abort_unless($allowed, 403, __('An active subscription is required to access this resource.'));
 
         return response()->json(['data' => $this->signed($media)]);
     }
@@ -29,19 +30,15 @@ class MediaController extends Controller
     {
         $media->loadMissing(['lesson.course', 'libraryItem']);
         abort_if($media->libraryItem && ($media->libraryItem->processing_status !== 'ready' || $media->libraryItem->archived_at), 404);
-        $lesson = $media->lesson;
-        $course = $lesson->course;
-        abort_unless($course->is_published && ! $course->archived_at, 404);
-        abort_unless($lesson->is_preview && $lesson->status === 'published', 404);
-        abort_if($lesson->available_from?->isFuture() || $lesson->available_until?->isPast(), 404);
-        abort_unless($media->status === 'published', 404);
-        abort_if($media->available_from?->isFuture() || $media->available_until?->isPast(), 404);
+        $this->ensurePublished($media);
+        abort_unless($media->lesson->is_preview, 404);
 
         return response()->json(['data' => $this->signed($media)]);
     }
 
     public function stream(Request $request, MediaAsset $media): BinaryFileResponse
     {
+        $this->ensurePublished($media);
         $media->loadMissing('libraryItem');
         abort_if($media->libraryItem && ($media->libraryItem->processing_status !== 'ready' || $media->libraryItem->archived_at), 404);
         abort_unless(Storage::disk($media->disk)->exists($media->path), 404);
@@ -51,6 +48,34 @@ class MediaController extends Controller
         return $request->boolean('download')
             ? response()->download($path, $media->original_name, $headers)
             : response()->file($path, $headers);
+    }
+
+    public function offline(MediaAsset $media): BinaryFileResponse
+    {
+        $this->ensurePublished($media);
+        abort_unless($media->lesson->is_preview && $media->lesson->allow_pdf_download
+            && $media->kind === 'resource' && $media->mime_type === 'application/pdf', 404);
+        abort_unless(Storage::disk($media->disk)->exists($media->path), 404);
+
+        return response()->file(Storage::disk($media->disk)->path($media->path), [
+            'Content-Type' => 'application/pdf', 'Cache-Control' => 'public, max-age=3600', 'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    private function ensurePublished(MediaAsset $media): void
+    {
+        $media->loadMissing('lesson.course', 'lesson.unit', 'libraryItem');
+        abort_if($media->libraryItem && ($media->libraryItem->processing_status !== 'ready' || $media->libraryItem->archived_at), 404);
+        $lesson = $media->lesson;
+        abort_unless($lesson && $lesson->course->is_published && ! $lesson->course->archived_at, 404);
+        abort_unless($lesson->status === 'published' && $media->status === 'published', 404);
+        foreach ([$lesson, $lesson->unit, $media] as $item) {
+            if (! $item) {
+                continue;
+            }
+            abort_if($item->available_from?->isFuture() || $item->available_until?->isPast(), 404);
+        }
+        abort_if($lesson->unit && $lesson->unit->status !== 'published', 404);
     }
 
     private function signed(MediaAsset $media): array

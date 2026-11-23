@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Certificate;
 use App\Models\Course;
+use App\Services\CertificateEligibilityService;
+use App\Services\StudentContentAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -20,9 +22,19 @@ class CertificateController extends Controller
 
     public function show(Request $request, Course $course): JsonResponse
     {
+        app(CertificateEligibilityService::class)->ensureIssued($request->user(), $course);
         $certificate = Certificate::whereNull('revoked_at')->where('user_id', $request->user()->id)->where('course_id', $course->id)->with(['course', 'user'])->firstOrFail();
 
         return response()->json($this->payload($certificate));
+    }
+
+    public function status(Request $request, Course $course, CertificateEligibilityService $eligibility): JsonResponse
+    {
+        abort_unless(app(StudentContentAccessService::class)->canAccessCourse($request->user(), $course)
+            || $request->user()->certificates()->where('course_id', $course->id)->exists(), 403);
+        $eligibility->ensureIssued($request->user(), $course);
+
+        return response()->json(['data' => $eligibility->status($request->user(), $course)]);
     }
 
     public function verify(string $publicId): JsonResponse

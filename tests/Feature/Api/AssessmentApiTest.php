@@ -23,10 +23,12 @@ class AssessmentApiTest extends TestCase
         $question = $assessment->questions()->create(['topic' => 'Basics', 'topic_ar' => 'أساسيات', 'prompt' => 'Correct?', 'prompt_ar' => 'صحيح؟', 'options' => ['Yes', 'No'], 'correct_option' => 0, 'explanation' => 'Yes.', 'explanation_ar' => 'نعم.', 'position' => 1]);
         $user->enrollments()->create(['course_id' => $course->id, 'enrolled_at' => now()]);
 
+        $this->postJson("/api/courses/{$course->id}/assessment/start")->assertOk();
         $this->postJson("/api/courses/{$course->id}/assessment/submit", ['answers' => [$question->id => 0]])
             ->assertOk()->assertJsonPath('score', 100)->assertJsonPath('certificateId', null);
 
         $user->lessonCompletions()->create(['lesson_id' => $lesson->id, 'completed_at' => now()]);
+        $this->postJson("/api/courses/{$course->id}/assessment/start")->assertOk();
         $response = $this->postJson("/api/courses/{$course->id}/assessment/submit", ['answers' => [$question->id => 0]])
             ->assertOk()->assertJsonPath('passed', true);
         $this->assertNotNull($response->json('certificateId'));
@@ -62,6 +64,7 @@ class AssessmentApiTest extends TestCase
         $this->assertSame(array_column($first, 'id'), array_column($second, 'id'));
 
         $answers = collect($first)->mapWithKeys(fn ($question) => [$question['id'] => 0])->all();
+        $this->postJson('/api/courses/'.$course->id.'/assessment/start')->assertOk();
         $this->postJson('/api/courses/'.$course->id.'/assessment/submit', ['answers' => $answers])
             ->assertOk()->assertJsonPath('total', 2)->assertJsonPath('score', 100);
     }
@@ -81,8 +84,10 @@ class AssessmentApiTest extends TestCase
         Sanctum::actingAs($user);
 
         $this->getJson("/api/courses/{$course->id}/assessment")->assertOk()->assertJsonPath('questions.0.type', 'multiple_select');
+        $this->postJson("/api/courses/{$course->id}/assessment/start")->assertOk();
         $this->postJson("/api/courses/{$course->id}/assessment/submit", ['answers' => [$question->id => [2, 0]]])
             ->assertOk()->assertJsonPath('score', 100)->assertJsonPath('review.0.correct', true);
+        $this->postJson("/api/courses/{$course->id}/assessment/start")->assertOk();
         $this->postJson("/api/courses/{$course->id}/assessment/submit", ['answers' => [$question->id => [0]]])
             ->assertOk()->assertJsonPath('score', 0)->assertJsonPath('review.0.correct', false);
     }
@@ -101,6 +106,7 @@ class AssessmentApiTest extends TestCase
         $user->enrollments()->create(['course_id' => $course->id, 'enrolled_at' => now()]);
         Sanctum::actingAs($user);
 
+        $this->postJson("/api/courses/{$course->id}/assessment/start")->assertOk();
         $this->postJson("/api/courses/{$course->id}/assessment/submit", ['answers' => [$question->id => '  java   script ']])
             ->assertOk()->assertJsonPath('score', 100)->assertJsonPath('review.0.correct', true);
     }

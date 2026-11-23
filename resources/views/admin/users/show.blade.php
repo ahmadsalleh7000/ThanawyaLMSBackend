@@ -44,7 +44,7 @@
         <section class="card table-wrap">
             <div class="section-heading" style="padding:0 0 4px"><div><div class="eyebrow">النتائج</div><h2>محاولات التقييم</h2></div></div>
             <table><thead><tr><th>الدورة</th><th>النتيجة</th><th>الحالة</th><th>التاريخ</th></tr></thead><tbody>
-            @forelse($attempts as $attempt)<tr><td>{{ $attempt->assessment->course->title }}</td><td><strong>{{ $attempt->score }}%</strong></td><td><span class="badge {{ $attempt->passed ? 'published' : 'inactive' }}">{{ $attempt->passed ? 'ناجح' : 'لم يجتز' }}</span></td><td>{{ $attempt->submitted_at->format('Y/m/d') }}</td></tr>@empty<tr><td colspan="4"><div class="empty-state">لا توجد محاولات تقييم.</div></td></tr>@endforelse
+            @forelse($attempts as $attempt)<tr><td>{{ $attempt->assessment->course->title }}</td><td><strong>{{ $attempt->effective_score }}%</strong></td><td><span class="badge {{ $attempt->passed ? 'published' : 'inactive' }}">{{ $attempt->passed ? 'ناجح' : 'لم يجتز' }}</span></td><td>{{ $attempt->submitted_at->format('Y/m/d') }}</td></tr>@empty<tr><td colspan="4"><div class="empty-state">لا توجد محاولات تقييم.</div></td></tr>@endforelse
             </tbody></table>
         </section>
 

@@ -27,6 +27,7 @@ class AdminAssessmentApiTest extends TestCase
 
         $student->enrollments()->create(['course_id' => $course->id, 'enrolled_at' => now()]);
         Sanctum::actingAs($student);
+        $this->postJson('/api/courses/'.$course->id.'/assessment/start')->assertOk();
         $this->postJson('/api/courses/'.$course->id.'/assessment/submit', ['answers' => [(string) $question['id'] => 0]])
             ->assertOk()->assertJsonPath('score', 100)->assertJsonPath('passed', true);
 

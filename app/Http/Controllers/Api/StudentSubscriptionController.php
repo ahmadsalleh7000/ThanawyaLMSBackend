@@ -3,9 +3,13 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AcademicTerm;
 use App\Models\Order;
 use App\Models\StudentSubscription;
+use App\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Services\ManualPaymentSettingsService;
+use App\Services\SubscriptionRenewalService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -20,17 +24,20 @@ class StudentSubscriptionController extends Controller
             ->with(['plan:id,code,name_ar,name_en,billing_period,price,currency', 'term.academicYear:id,code,name_ar,name_en', 'term.grade:id,code,name_ar,name_en'])
             ->latest('starts_at')->get();
         $active = $subscriptions->filter(fn (StudentSubscription $subscription) => $subscription->status === 'active'
+            && (! $subscription->starts_at || $subscription->starts_at->lte(now()))
             && (! $subscription->ends_at || $subscription->ends_at->isFuture()));
         $subscriptionOrders = $student->orders()->where('product_type', 'subscription')
             ->with(['subscriptionPlan:id,code,name_ar,name_en,billing_period,price,currency', 'manualPaymentSubmissions' => fn ($query) => $query->latest()])
             ->latest()->get();
-        $actionableOrder = $subscriptionOrders->first(fn (Order $order) => in_array($order->status, ['pending', 'submitted', 'needs_information'], true));
+        $actionableOrder = $subscriptionOrders->first(fn (Order $order) => in_array($order->status, ['submitted', 'needs_information'], true) || ($order->status === 'pending' && $order->created_at->copy()->addMinutes(app(ManualPaymentSettingsService::class)->expiresMinutes())->isFuture()));
+        $upcoming = $subscriptions->filter(fn ($subscription) => $subscription->status === 'active' && $subscription->starts_at?->isFuture() && (! $subscription->ends_at || $subscription->ends_at->isFuture()));
 
         $state = match (true) {
             $active->isNotEmpty() => 'active',
             $actionableOrder?->status === 'submitted' => 'pending_review',
             $actionableOrder?->status === 'needs_information' => 'rejected',
             $actionableOrder?->status === 'pending' => 'pending_payment',
+            $upcoming->isNotEmpty() => 'upcoming',
             $subscriptions->isNotEmpty() => 'expired',
             default => 'none',
         };
@@ -38,6 +45,7 @@ class StudentSubscriptionController extends Controller
         return response()->json(['data' => [
             'state' => $state,
             'current' => $active->isEmpty() ? null : $this->serializeCurrent($active),
+            'upcoming' => $upcoming->isEmpty() ? null : $this->serializeCurrent($upcoming),
             'pendingOrder' => $actionableOrder ? $this->serializeOrder($actionableOrder) : null,
             'history' => $subscriptionOrders->map(fn (Order $order) => $this->serializeOrder($order))->values(),
             'availableActions' => [
@@ -46,10 +54,21 @@ class StudentSubscriptionController extends Controller
                 'canResubmitPayment' => $actionableOrder?->status === 'needs_information',
                 'canContactSupport' => true,
                 'canUpgrade' => false,
-                'canRenew' => false,
+                'canRenew' => $student->isEligibleForAccess() && ! $actionableOrder,
                 'canCancel' => false,
             ],
         ]]);
+    }
+
+    public function checkout(Request $request, SubscriptionRenewalService $renewals): JsonResponse
+    {
+        $data = $request->validate([
+            'subscription_plan_id' => ['required', 'integer', 'exists:subscription_plans,id'],
+            'academic_term_id' => ['required', 'integer', 'exists:academic_terms,id'],
+            'payment_method' => ['required', 'string', 'max:40'],
+        ]);
+
+        return response()->json($renewals->checkout($request->user(), SubscriptionPlan::findOrFail($data['subscription_plan_id']), AcademicTerm::findOrFail($data['academic_term_id']), $data['payment_method']), 201);
     }
 
     private function serializeCurrent($subscriptions): array
@@ -58,7 +77,7 @@ class StudentSubscriptionController extends Controller
 
         return [
             'id' => $first->id,
-            'status' => 'active',
+            'status' => $first->starts_at?->isFuture() ? 'upcoming' : 'active',
             'plan' => [
                 'id' => $first->plan->id,
                 'code' => $first->plan->code,

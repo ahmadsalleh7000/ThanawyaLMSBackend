@@ -112,7 +112,7 @@ class AdminUserController extends Controller
                 $completed = $lessonIds->intersect($completedIds)->count();
                 $attempt = AssessmentAttempt::where('user_id', $student->id)->whereHas('assessment', fn ($query) => $query->where('course_id', $course->id))->latest('submitted_at')->first();
 
-                return ['id' => $course->id, 'title' => $course->title, 'titleEn' => $course->title_en, 'progress' => $lessonIds->isEmpty() ? 0 : (int) round(($completed / $lessonIds->count()) * 100), 'completedLessons' => $completed, 'totalLessons' => $lessonIds->count(), 'assessmentScore' => $attempt?->score, 'certificateIssued' => Certificate::where('user_id', $student->id)->where('course_id', $course->id)->exists()];
+                return ['id' => $course->id, 'title' => $course->title, 'titleEn' => $course->title_en, 'progress' => $lessonIds->isEmpty() ? 0 : (int) round(($completed / $lessonIds->count()) * 100), 'completedLessons' => $completed, 'totalLessons' => $lessonIds->count(), 'assessmentScore' => $attempt?->effective_score, 'certificateIssued' => Certificate::where('user_id', $student->id)->where('course_id', $course->id)->exists()];
             })->all();
     }
 

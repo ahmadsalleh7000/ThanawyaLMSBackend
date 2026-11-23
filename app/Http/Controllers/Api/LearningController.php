@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\Lesson;
+use App\Services\CertificateEligibilityService;
 use App\Services\StudentContentAccessService;
 use App\Services\StudentPlanningService;
 use Illuminate\Http\JsonResponse;
@@ -59,13 +60,15 @@ class LearningController extends Controller
     public function complete(Request $request, Course $course, string $lesson): JsonResponse
     {
         $lessonModel = Lesson::whereBelongsTo($course)->where('slug', $lesson)->firstOrFail();
-        abort_unless($this->access->canAccessLesson($request->user(), $lessonModel), 403, 'An active subscription is required.');
+        abort_unless($this->access->canAccessLesson($request->user(), $lessonModel), 403, __('An active subscription is required.'));
         $workspace = $request->user()->lessonWorkspaceStates()->where('lesson_id', $lessonModel->id)->first();
         $rules = $lessonModel->completion_rules ?: [];
-        abort_if(($rules['require_content_opened'] ?? false) && ! $workspace?->content_opened_at, 422, 'Open the lesson content before completing this lesson.');
-        abort_if(($rules['require_practice_passed'] ?? false) && ! $workspace?->practice_passed_at, 422, 'Pass the lesson practice before completing this lesson.');
-        abort_if((int) ($rules['minimum_video_seconds'] ?? 0) > (int) ($workspace?->playback_seconds ?? 0), 422, 'Spend more time with the lesson video before completing this lesson.');
+        abort_if(($rules['require_content_opened'] ?? false) && ! $workspace?->content_opened_at, 422, __('Open the lesson content before completing this lesson.'));
+        abort_if(($rules['require_practice_passed'] ?? false) && ! $workspace?->practice_passed_at, 422, __('Pass the lesson practice before completing this lesson.'));
+        $embedded = preg_match('~(?:^|\.)(?:youtube\.com|youtu\.be|vimeo\.com|drive\.google\.com)$~i', (string) parse_url($lessonModel->video_url ?? '', PHP_URL_HOST));
+        abort_if((int) ($rules['minimum_video_seconds'] ?? 0) > 0 && ($embedded ? ! $workspace?->video_confirmed_at : (int) ($rules['minimum_video_seconds'] ?? 0) > (int) ($workspace?->playback_seconds ?? 0)), 422, __('Spend more time with the lesson video before completing this lesson.'));
         $completion = $request->user()->lessonCompletions()->firstOrCreate(['lesson_id' => $lessonModel->id], ['completed_at' => now()]);
+        app(CertificateEligibilityService::class)->ensureIssued($request->user(), $course);
 
         $count = $request->user()->lessonCompletions()->count();
         $celebration = $completion->wasRecentlyCreated && in_array($count, [1, 5, 10, 25], true) ? 'lessons_'.$count : null;
@@ -76,13 +79,15 @@ class LearningController extends Controller
     public function updateWorkspace(Request $request, Course $course, string $lesson): JsonResponse
     {
         $lessonModel = Lesson::whereBelongsTo($course)->where('slug', $lesson)->firstOrFail();
-        abort_unless($this->access->canAccessLesson($request->user(), $lessonModel), 403, 'An active subscription is required.');
+        abort_unless($this->access->canAccessLesson($request->user(), $lessonModel), 403, __('An active subscription is required.'));
         $validated = $request->validate([
             'note' => ['sometimes', 'nullable', 'string', 'max:10000'],
             'is_bookmarked' => ['sometimes', 'boolean'],
             'playback_seconds' => ['sometimes', 'integer', 'min:0', 'max:86400'],
             'playback_rate' => ['sometimes', 'numeric', 'in:0.75,1,1.25,1.5,1.75,2'],
             'content_opened' => ['sometimes', 'boolean'],
+            'visited' => ['sometimes', 'boolean'],
+            'video_confirmed' => ['sometimes', 'boolean'],
         ]);
         if (array_key_exists('content_opened', $validated)) {
             $contentOpened = (bool) $validated['content_opened'];
@@ -90,6 +95,12 @@ class LearningController extends Controller
             if ($contentOpened) {
                 $validated['content_opened_at'] = now();
             }
+        }
+        foreach (['visited' => 'last_opened_at', 'video_confirmed' => 'video_confirmed_at'] as $flag => $column) {
+            if (! empty($validated[$flag])) {
+                $validated[$column] = now();
+            }
+            unset($validated[$flag]);
         }
         $state = $request->user()->lessonWorkspaceStates()->updateOrCreate(
             ['lesson_id' => $lessonModel->id],
@@ -112,12 +123,15 @@ class LearningController extends Controller
         $passedCount = $attempts->where('passed', true)->count();
 
         return response()->json(['data' => [
+            'goals' => $user->onboardingProfile?->learning_goals ?? [],
+            'weeklyMinutes' => (int) $completions->where('completed_at', '>=', now()->startOfWeek())->sum(fn ($completion) => $completion->lesson?->duration_minutes ?? 0),
+            'weeklyActivity' => collect(range(6, 0))->map(fn ($days) => ['date' => now()->subDays($days)->toDateString(), 'completedLessons' => $completions->filter(fn ($completion) => $completion->completed_at?->isSameDay(now()->subDays($days)))->count()]),
             'studyMinutes' => $completions->sum(fn ($completion) => $completion->lesson?->duration_minutes ?? 0),
             'completedLessons' => $completedCount,
             'passedAssessments' => $passedCount,
             'certificateCount' => $certificateCount,
             'currentStreak' => $streak,
-            'bestAssessmentScore' => (int) ($attempts->max('score') ?? 0),
+            'bestAssessmentScore' => (int) ($attempts->max('effective_score') ?? 0),
             'achievements' => collect([
                 ['key' => 'first_lesson', 'progress' => min($completedCount, 1), 'target' => 1, 'earned' => $completedCount >= 1],
                 ['key' => 'five_lessons', 'progress' => min($completedCount, 5), 'target' => 5, 'earned' => $completedCount >= 5],
@@ -126,6 +140,26 @@ class LearningController extends Controller
                 ['key' => 'first_certificate', 'progress' => min($certificateCount, 1), 'target' => 1, 'earned' => $certificateCount >= 1],
             ]),
         ]]);
+    }
+
+    public function goals(Request $request): JsonResponse
+    {
+        abort_unless($request->user()->role === 'student', 403);
+        $data = $request->validate([
+            'goals' => ['present', 'array', 'max:20'],
+            'goals.*.id' => ['required', 'string', 'max:80', 'distinct'],
+            'goals.*.title' => ['nullable', 'string', 'max:120'],
+            'goals.*.category' => ['required', 'in:courses,lessons,hours,days'],
+            'goals.*.target' => ['required', 'integer', 'min:1', 'max:100'],
+            'goals.*.current' => ['required', 'integer', 'min:0', 'max:100'],
+            'goals.*.deadline' => ['nullable', 'date_format:Y-m-d'],
+        ]);
+        foreach ($data['goals'] as &$goal) {
+            $goal['current'] = min($goal['current'], $goal['target']);
+        }
+        $request->user()->onboardingProfile()->firstOrCreate()->update(['learning_goals' => $data['goals']]);
+
+        return response()->json(['data' => $data['goals']]);
     }
 
     public function planner(Request $request, StudentPlanningService $planning): JsonResponse
@@ -161,6 +195,8 @@ class LearningController extends Controller
     private function serializeWorkspace($state): array
     {
         return [
+            'lastOpenedAt' => $state->last_opened_at?->toISOString(),
+            'videoConfirmed' => (bool) $state->video_confirmed_at,
             'note' => $state->note ?? '',
             'isBookmarked' => (bool) $state->is_bookmarked,
             'playbackSeconds' => (int) $state->playback_seconds,

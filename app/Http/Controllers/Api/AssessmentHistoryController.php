@@ -7,6 +7,7 @@ use App\Models\AssessmentAttempt;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class AssessmentHistoryController extends Controller
@@ -31,8 +32,8 @@ class AssessmentHistoryController extends Controller
         $summary = [
             'attempts' => (clone $summaryQuery)->count(),
             'passed' => (clone $summaryQuery)->where('passed', true)->count(),
-            'averageScore' => round((float) ((clone $summaryQuery)->avg('score') ?? 0)),
-            'bestScore' => (int) ((clone $summaryQuery)->max('score') ?? 0),
+            'averageScore' => round((float) ((clone $summaryQuery)->avg(DB::raw('COALESCE(manual_score, score)')) ?? 0)),
+            'bestScore' => (int) ((clone $summaryQuery)->max(DB::raw('COALESCE(manual_score, score)')) ?? 0),
         ];
         $attempts = $query->with('assessment.course:id,title,title_en,image_url')
             ->latest('submitted_at')
@@ -48,7 +49,7 @@ class AssessmentHistoryController extends Controller
                     'titleEn' => $attempt->assessment->course->title_en,
                     'imageUrl' => $attempt->assessment->course->image_url,
                 ],
-                'score' => $attempt->score,
+                'score' => $attempt->effective_score,
                 'passingScore' => $attempt->assessment->passing_score,
                 'passed' => $attempt->passed,
                 'submittedAt' => $attempt->submitted_at?->toISOString(),

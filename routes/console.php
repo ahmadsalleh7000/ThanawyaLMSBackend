@@ -9,6 +9,7 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('announcements:dispatch')->everyMinute()->withoutOverlapping();
+Schedule::command('assessments:finalize-expired')->everyMinute()->withoutOverlapping();
 Schedule::command('courses:run-scheduled-actions')->everyMinute()->withoutOverlapping();
 Schedule::command('students:scan-risk')->dailyAt('02:00')->withoutOverlapping();
 Schedule::command('engagement:send-notifications')->hourly()->withoutOverlapping();

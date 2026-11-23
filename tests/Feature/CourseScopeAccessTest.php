@@ -63,7 +63,7 @@ class CourseScopeAccessTest extends TestCase
         $this->assertTrue($ids->contains($two->id));
     }
 
-    public function test_student_course_payload_contains_only_available_lessons(): void
+    public function test_student_course_payload_preserves_locked_syllabus_without_content(): void
     {
         $term = $this->term('grade-1', 'semester-1');
         $student = $this->subscribedStudent($term);
@@ -75,7 +75,12 @@ class CourseScopeAccessTest extends TestCase
         Sanctum::actingAs($student);
         $lessons = collect($this->getJson('/api/courses/'.$course->id)->assertOk()->json('data.lessons'));
 
-        $this->assertSame(['published'], $lessons->pluck('id')->all());
+        $this->assertSame(['published', 'future'], $lessons->pluck('id')->all());
+        $future = $lessons->firstWhere('id', 'future');
+        $this->assertTrue($future['locked']);
+        $this->assertSame('scheduled', $future['lockReason']);
+        $this->assertNull($future['videoUrl']);
+        $this->assertSame([], $future['sections']);
     }
 
     public function test_admin_can_create_general_course_and_switching_scope_clears_academic_context(): void

@@ -3053,3 +3053,60 @@ select[multiple], select[multiple] option {
     grid-template-columns: 1fr;
   }
 }
+
+/* Central exam and quiz management. */
+.exam-hub { min-width: 0; }
+.exam-hub-filters { display: grid; grid-template-columns: minmax(200px, 1.4fr) repeat(3, minmax(120px, 1fr)) auto; gap: 12px; align-items: end; }
+.exam-hub-filters .actions-inline { flex-wrap: wrap; }
+.exam-hub-results-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-block: 18px 10px; }
+.exam-hub-results-heading span { color: var(--muted); font-size: var(--font-size-sm); }
+.exam-hub-list { padding: 0; }
+.exam-hub-table { width: 100%; table-layout: fixed; }
+.exam-hub-table th:first-child { width: 28%; }
+.exam-hub-table th:last-child { width: 22%; }
+.exam-hub-table td { vertical-align: top; overflow-wrap: anywhere; }
+.exam-hub-table td > small, .exam-hub-table td > strong { display: block; margin-block: 3px; }
+.exam-hub-table small, .exam-hub-context { color: var(--muted); font-size: var(--font-size-xs); }
+.exam-hub-title { display: block; margin-block: 5px; color: var(--ink); font-weight: 850; text-decoration: none; }
+.exam-hub-title:hover { color: var(--blue); text-decoration: underline; }
+.exam-hub-kind { display: inline-block; padding: 3px 7px; border-radius: 6px; color: var(--blue); background: var(--blue-soft); font-size: var(--font-size-xs); font-weight: 750; }
+.exam-hub-actions { display: flex; flex-wrap: wrap; gap: 5px; }
+.exam-hub-actions .button { min-height: 36px; padding: 6px 9px; font-size: var(--font-size-xs); }
+.exam-hub-attempt-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 16px; }
+@media (max-width: 1200px) {
+  .exam-hub-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .exam-hub .course-catalog-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .exam-hub-table thead { display: none; }
+  .exam-hub-table, .exam-hub-table tbody { display: block; }
+  .exam-hub-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-bottom: 1px solid var(--line); padding: 12px; gap: 14px 10px; }
+  .exam-hub-table td { display: block; padding: 0; border: 0; }
+  .exam-hub-table td[data-label]::before { display: block; margin-bottom: 5px; color: var(--muted); content: attr(data-label); font-size: var(--font-size-xs); }
+  .exam-hub-table .exam-hub-identity, .exam-hub-table td:last-child, .exam-hub-table td[colspan] { grid-column: 1 / -1; }
+  .exam-hub-attempt-stats { grid-template-columns: 1fr; }
+}
+@media (max-width: 440px) {
+  .exam-hub-filters { grid-template-columns: 1fr; }
+}
+
+/* Lesson assignment management */
+.assignment-admin { display: grid; gap: 18px; min-width: 0; }
+.assignment-admin .page-header { margin-bottom: 0; }
+.assignment-admin .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: end; }
+.assignment-admin .form-grid > label { display: grid; gap: 7px; min-width: 0; }
+.assignment-admin .form-grid > .full { grid-column: 1 / -1; }
+.assignment-admin .form-grid :is(input:not([type="checkbox"]), select, textarea) { width: 100%; min-width: 0; }
+.assignment-admin .form-grid textarea { resize: vertical; }
+.assignment-admin .form-grid small { color: var(--muted); font-weight: 400; }
+.assignment-admin .stack { display: grid; gap: 16px; min-width: 0; }
+.assignment-admin .table-wrap { min-width: 0; overflow-x: auto; }
+.assignment-admin table { min-width: 760px; width: 100%; }
+.assignment-admin td { vertical-align: top; }
+.assignment-admin td small { display: block; margin-top: 5px; color: var(--muted); }
+.assignment-admin .actions-inline { flex-wrap: wrap; }
+@media (max-width: 760px) {
+  .assignment-admin .form-grid { grid-template-columns: 1fr; }
+  .assignment-admin .page-header { align-items: stretch; flex-direction: column; }
+}
+.form-grid [data-bank-answer-kind][hidden] { display: none; }

@@ -7,6 +7,9 @@ use App\Models\Assessment;
 use App\Models\AssessmentQuestion;
 use App\Models\Course;
 use App\Services\AuditService;
+use App\Services\ExamGradingService;
+use App\Services\ExamSettings;
+use App\Services\QuestionAuthoringService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -27,7 +30,6 @@ class AdminAssessmentController extends Controller
         $assessment = $course->assessment;
         abort_if($assessment?->is_published, 409, 'Unpublish before editing.');
         $data = $request->validate(['duration_minutes' => ['required', 'integer', 'min:1', 'max:180'], 'passing_score' => ['required', 'integer', 'min:1', 'max:100'], 'available_from' => ['nullable', 'date'], 'due_at' => ['nullable', 'date', 'after:available_from'], 'randomize_questions' => ['sometimes', 'boolean'], 'question_limit' => ['nullable', 'integer', 'min:1', 'max:200']]);
-        $data['randomize_questions'] = $request->boolean('randomize_questions');
         $before = $assessment?->attributesToArray();
         $assessment = Assessment::updateOrCreate(['course_id' => $course->id], $data + ['is_published' => false]);
         $audit->record($request, $before ? 'assessment.updated' : 'assessment.created', $assessment, $before);
@@ -39,7 +41,7 @@ class AdminAssessmentController extends Controller
     {
         $assessment = $course->assessment()->with('questions')->firstOrFail();
         if (! $assessment->is_published) {
-            abort_unless($assessment->questions->isNotEmpty(), 422, 'Add a question before publishing.');
+            abort_unless($assessment->questions->where('is_active', true)->isNotEmpty(), 422, 'Add a question before publishing.');
         }
         $before = $assessment->attributesToArray();
         $assessment->update(['is_published' => ! $assessment->is_published]);
@@ -52,9 +54,9 @@ class AdminAssessmentController extends Controller
     {
         $assessment = $course->assessment()->firstOrFail();
         abort_if($assessment->is_published, 409, 'Unpublish before changing delivery settings.');
-        $data = $request->validate(['randomize_questions' => ['sometimes', 'boolean'], 'question_limit' => ['nullable', 'integer', 'min:1', 'max:200']]);
+        $data = $request->validate(ExamSettings::rules());
         $before = $assessment->attributesToArray();
-        $assessment->update(['randomize_questions' => $request->boolean('randomize_questions'), 'question_limit' => $data['question_limit'] ?? null]);
+        $assessment->update($data);
         $audit->record($request, 'assessment.delivery_updated', $assessment, $before);
 
         return back()->with('success', 'تم تحديث طريقة عرض الأسئلة.');
@@ -87,6 +89,17 @@ class AdminAssessmentController extends Controller
         $audit->record($request, 'assessment_question.created', $question);
 
         return back()->with('success', 'تمت إضافة السؤال.');
+    }
+
+    public function toggleQuestion(Request $request, Course $course, AssessmentQuestion $question, AuditService $audit): RedirectResponse
+    {
+        $this->ensureQuestion($course, $question);
+        abort_if($question->assessment->is_published, 409, 'Unpublish before changing questions.');
+        $before = $question->attributesToArray();
+        $question->update(['is_active' => ! $question->is_active]);
+        $audit->record($request, 'assessment_question.toggled', $question, $before);
+
+        return back()->with('success', 'تم تحديث تفعيل السؤال.');
     }
 
     public function destroyQuestion(Request $request, Course $course, AssessmentQuestion $question, AuditService $audit): RedirectResponse
@@ -146,7 +159,7 @@ class AdminAssessmentController extends Controller
         $attemptCollection = $assessment->attempts()->get(['answers']);
         $questionPerformance = $assessment->questions->map(function (AssessmentQuestion $question) use ($attemptCollection): array {
             $answered = $attemptCollection->filter(fn ($attempt) => array_key_exists((string) $question->id, $attempt->answers) || array_key_exists($question->id, $attempt->answers));
-            $correct = $answered->filter(fn ($attempt) => (int) ($attempt->answers[$question->id] ?? $attempt->answers[(string) $question->id]) === $question->correct_option)->count();
+            $correct = $answered->filter(fn ($attempt) => app(ExamGradingService::class)->answerIsCorrect($question, $attempt->answers[$question->id] ?? $attempt->answers[(string) $question->id]))->count();
 
             return ['question' => $question, 'answered' => $answered->count(), 'accuracy' => $answered->isEmpty() ? 0 : round($correct / $answered->count() * 100, 1)];
         })->sortBy('accuracy')->values();
@@ -157,7 +170,7 @@ class AdminAssessmentController extends Controller
             'attempts' => $query->with('user:id,name,email')->latest('submitted_at')->paginate(30),
             'summary' => [
                 'attempts' => $count,
-                'average' => $count ? round((float) $assessment->attempts()->avg('score'), 1) : 0,
+                'average' => $count ? round((float) $assessment->attempts()->avg(DB::raw('COALESCE(manual_score, score)')), 1) : 0,
                 'passRate' => $count ? round(($passed / $count) * 100, 1) : 0,
             ],
             'questionPerformance' => $questionPerformance,
@@ -166,24 +179,13 @@ class AdminAssessmentController extends Controller
 
     private function questionData(Request $request, Assessment $assessment, ?AssessmentQuestion $question = null): array
     {
-        $data = $request->validate(['type' => ['nullable', Rule::in(['single_choice', 'true_false'])], 'difficulty' => ['nullable', Rule::in(['easy', 'medium', 'hard'])], 'topic' => ['required', 'string', 'max:150'], 'topic_ar' => ['required', 'string', 'max:150'], 'prompt' => ['required', 'string', 'max:3000'], 'prompt_ar' => ['required', 'string', 'max:3000'], 'options_text' => ['nullable', 'required_unless:type,true_false', 'string'], 'options_ar_text' => ['nullable', 'required_unless:type,true_false', 'string'], 'correct_option' => ['required', 'integer', 'min:0'], 'explanation' => ['required', 'string', 'max:3000'], 'explanation_ar' => ['required', 'string', 'max:3000'], 'position' => ['required', 'integer', 'min:1', Rule::unique('assessment_questions')->where('assessment_id', $assessment->id)->ignore($question?->id)]]);
-        $data['type'] ??= 'single_choice';
-        $data['difficulty'] ??= 'medium';
-        [$options, $optionsAr] = $data['type'] === 'true_false' ? [['True', 'False'], ['صحيح', 'خطأ']] : [$this->lines($data['options_text']), $this->lines($data['options_ar_text'])];
-        abort_unless(count($options) >= 2 && count($options) === count($optionsAr), 422, 'Arabic and English options must match.');
-        abort_unless($data['correct_option'] < count($options), 422, 'Invalid correct answer.');
-        unset($data['options_text'], $data['options_ar_text']);
+        $position = $request->validate(['position' => ['required', 'integer', 'min:1', Rule::unique('assessment_questions')->where('assessment_id', $assessment->id)->ignore($question?->id)]]);
 
-        return $data + ['options' => $options, 'options_ar' => $optionsAr];
+        return app(QuestionAuthoringService::class)->data($request) + $position;
     }
 
     private function ensureQuestion(Course $course, AssessmentQuestion $question): void
     {
         abort_unless($question->assessment?->course_id === $course->id, 404);
-    }
-
-    private function lines(string $value): array
-    {
-        return array_values(array_filter(array_map('trim', explode("\n", str_replace("\r", '', $value)))));
     }
 }

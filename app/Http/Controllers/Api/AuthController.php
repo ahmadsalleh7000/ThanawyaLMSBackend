@@ -120,24 +120,24 @@ class AuthController extends Controller
         })->first();
         if (! $user || ! Hash::check($request->validated('password'), $user->password)) {
             $events->record($request, $user, $identity, 'sanctum', false, 'invalid_credentials');
-            throw ValidationException::withMessages([$errorField => ['The provided credentials are incorrect.']]);
+            throw ValidationException::withMessages([$errorField => [__('The provided credentials are incorrect.')]]);
         }
         if ($user->isAdmin()) {
             $events->record($request, $user, $user->email, 'sanctum', false, 'admin_portal_required');
-            throw ValidationException::withMessages([$errorField => ['Administrator accounts must use the Laravel admin portal.']]);
+            throw ValidationException::withMessages([$errorField => [__('Administrator accounts must use the Laravel admin portal.')]]);
         }
         if ($user->must_change_password && $user->temporary_password_expires_at?->isPast()) {
             $events->record($request, $user, $identity, 'sanctum', false, 'temporary_password_expired');
-            throw ValidationException::withMessages([$errorField => ['Your temporary password has expired. Contact the academy to reissue your guardian invitation.']]);
+            throw ValidationException::withMessages([$errorField => [__('Your temporary password has expired. Contact the academy to reissue your guardian invitation.')]]);
         }
         $paymentOnly = $user->role === User::ROLE_STUDENT
-            && $user->registrationStatus() === RegistrationStatus::PendingPaymentReview;
+            && in_array($user->registrationStatus(), [RegistrationStatus::PendingPaymentReview, RegistrationStatus::Rejected], true);
         if (! $user->isEligibleForAccess() && ! $paymentOnly) {
             $events->record($request, $user, $user->email, 'sanctum', false, 'inactive_account');
             $message = match ($user->registrationStatus()) {
-                RegistrationStatus::PendingPaymentReview => 'Your registration and payment are still under review.',
-                RegistrationStatus::Rejected => 'Your registration was not approved. Contact support for details.',
-                default => 'This account is inactive. Contact support.',
+                RegistrationStatus::PendingPaymentReview => __('Your registration and payment are still under review.'),
+                RegistrationStatus::Rejected => __('Your registration was not approved. Contact support for details.'),
+                default => __('This account is inactive. Contact support.'),
             };
             throw ValidationException::withMessages([$errorField => [$message]]);
         }
@@ -169,6 +169,10 @@ class AuthController extends Controller
 
     public function me(Request $request): JsonResponse
     {
+        if ($request->user()->role === User::ROLE_STUDENT && ! $request->user()->isEligibleForAccess()) {
+            $request->user()->setAttribute('payment_only', true);
+        }
+
         return response()->json($request->user());
     }
 
@@ -192,8 +196,9 @@ class AuthController extends Controller
     public function changePassword(ChangePasswordRequest $request): JsonResponse
     {
         $request->user()->update(['password' => $request->validated('password')]);
+        $request->user()->tokens()->whereKeyNot($request->user()->currentAccessToken()?->id)->delete();
 
-        return response()->json(['message' => 'Password changed successfully.']);
+        return response()->json(['message' => __('Password changed successfully.')]);
     }
 
     public function logout(Request $request): JsonResponse

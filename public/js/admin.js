@@ -46,6 +46,14 @@
         });
     });
     document.querySelectorAll('dialog[data-dialog-auto-open]').forEach((dialog) => dialog.showModal());
+    if (window.location.hash === '#create-quiz') {
+        const createQuiz = document.getElementById('create-quiz');
+        if (createQuiz) {
+            createQuiz.hidden = false;
+            document.querySelector('[data-inline-form-toggle="create-quiz"]')?.setAttribute('aria-expanded', 'true');
+            createQuiz.scrollIntoView({ block: 'start' });
+        }
+    }
     document.querySelectorAll('.quiz-builder').forEach((builder, index) => {
         const summary = builder.querySelector('summary');
         const surface = builder.querySelector('.quiz-detail-surface');
@@ -85,6 +93,7 @@
             summary.classList.add('is-active');
             dock.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
+        if (builder.hasAttribute('data-quiz-auto-open')) summary.click();
     });
     document.querySelectorAll('[data-question-picker]').forEach((picker) => {
         const cards = [...picker.querySelectorAll('[data-picker-card]')];
@@ -534,3 +543,24 @@
         if (window.matchMedia('(max-width: 860px)').matches) setOpen(false);
     }));
 })();
+document.querySelectorAll('[data-bank-question-type]').forEach((select) => {
+    const form = select.closest('form');
+    const update = () => {
+        const type = select.value;
+        const text = ['short_answer', 'fill_in_blank'].includes(type);
+        form.querySelectorAll('[data-bank-answer-kind]').forEach((section) => {
+            const kind = section.dataset.bankAnswerKind;
+            const visible = kind === 'text' ? text
+                : kind === 'multiple' ? type === 'multiple_select'
+                    : kind === 'single' ? !text && type !== 'multiple_select'
+                        : !text && type !== 'true_false';
+            section.hidden = !visible;
+            section.querySelectorAll('input, textarea').forEach((input) => {
+                input.disabled = !visible;
+                input.required = visible;
+            });
+        });
+    };
+    select.addEventListener('change', update);
+    update();
+});

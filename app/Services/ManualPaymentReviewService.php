@@ -26,6 +26,7 @@ class ManualPaymentReviewService
                 throw ValidationException::withMessages(['review' => 'The submitted amount does not match the order.']);
             }
             if ($locked->order->product_type === 'subscription'
+                && ($locked->order->provider_payload['source'] ?? null) !== 'subscription_renewal'
                 && ! $locked->user->registrationStatus()->canTransitionTo(RegistrationStatus::Approved)) {
                 throw ValidationException::withMessages(['review' => 'This registration can no longer be approved.']);
             }
@@ -48,7 +49,7 @@ class ManualPaymentReviewService
                 'status' => $status === 'needs_information' ? 'needs_information' : 'rejected',
                 'assignment_status' => $status === 'needs_information' ? 'pending' : 'not_assigned',
             ]);
-            if ($locked->order->product_type === 'subscription' && $status === 'rejected') {
+            if ($locked->order->product_type === 'subscription' && $status === 'rejected' && ($locked->order->provider_payload['source'] ?? null) !== 'subscription_renewal') {
                 $user = $locked->user;
                 if (! $user->registrationStatus()->canTransitionTo(RegistrationStatus::Rejected)) {
                     throw ValidationException::withMessages(['review' => 'This registration can no longer be rejected.']);

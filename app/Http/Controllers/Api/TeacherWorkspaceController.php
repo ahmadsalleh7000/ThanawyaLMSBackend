@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\UpsertAssignmentRequest;
 use App\Http\Requests\UpsertLessonCommentRequest;
 use App\Http\Resources\LessonCommentResource;
 use App\Models\AssessmentAttempt;
@@ -16,10 +17,10 @@ use App\Models\LessonComment;
 use App\Models\StudentSupportCase;
 use App\Models\TeacherCourseAssignment;
 use App\Models\User;
+use App\Services\AssignmentWorkflowService;
 use App\Services\AuditService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -90,15 +91,26 @@ class TeacherWorkspaceController extends Controller
 
     public function questions(Request $request): JsonResponse
     {
+        $filters = $request->validate([
+            'course_id' => ['nullable', 'string', 'max:100'],
+            'question_id' => ['nullable', 'integer', 'min:1'],
+            'page' => ['nullable', 'integer', 'min:1'],
+        ]);
         $courseIds = TeacherCourseAssignment::query()
             ->active()
             ->where('teacher_id', $request->user()->id)
             ->pluck('course_id');
+        if ($filters['course_id'] ?? null) {
+            abort_unless($courseIds->contains($filters['course_id']), 403);
+            $courseIds = collect([$filters['course_id']]);
+        }
         $questions = LessonComment::query()
             ->whereNull('parent_id')
+            ->when($filters['question_id'] ?? null, fn ($query, $id) => $query->whereKey($id))
             ->whereHas('lesson', fn ($query) => $query->whereIn('course_id', $courseIds))
             ->with(['lesson:id,course_id,slug,title,title_en', 'lesson.course:id,title,title_en', 'user:id,name,role', 'replies.user:id,name,role'])
             ->latest()
+            ->orderByDesc('id')
             ->paginate(20);
 
         return response()->json([
@@ -161,7 +173,7 @@ class TeacherWorkspaceController extends Controller
                 return [
                     'id' => $enrollment->user_id,
                     'name' => $enrollment->user->name,
-                    'score' => $attempt?->score,
+                    'score' => $attempt?->effective_score,
                     'passed' => $attempt?->passed,
                     'submittedAt' => $attempt?->submitted_at?->toISOString(),
                     'status' => ! $attempt ? 'not_started' : ($attempt->passed ? 'on_track' : 'needs_attention'),
@@ -350,68 +362,81 @@ class TeacherWorkspaceController extends Controller
         ]]);
     }
 
-    public function createAssignment(Request $request, Course $course, string $lesson, AuditService $audit): JsonResponse
+    public function createAssignment(UpsertAssignmentRequest $request, Course $course, string $lesson, AuditService $audit): JsonResponse
     {
         $this->ensureAssigned($request, $course);
         $lessonModel = Lesson::query()->whereBelongsTo($course)->where('slug', $lesson)->firstOrFail();
-        $data = $request->validate([
-            'title' => ['required', 'string', 'max:200'], 'title_en' => ['nullable', 'string', 'max:200'],
-            'description' => ['nullable', 'string', 'max:5000'], 'description_en' => ['nullable', 'string', 'max:5000'],
-            'due_at' => ['nullable', 'date'], 'is_published' => ['sometimes', 'boolean'],
-            'position' => ['sometimes', 'integer', 'min:1', 'max:1000'],
-        ]);
-        $assignment = $lessonModel->assignments()->create($data + ['position' => $data['position'] ?? (($lessonModel->assignments()->max('position') ?? 0) + 1)]);
+        abort_if($course->archived_at, 409);
+        $data = $request->validated();
+        $assignment = $lessonModel->assignments()->create($data + ['position' => $data['position'] ?? min(1000, ($lessonModel->assignments()->max('position') ?? 0) + 1)]);
         $audit->record($request, 'teacher.assignment.created', $assignment);
 
-        return response()->json(['data' => [
-            'id' => $assignment->id,
-            'title' => $assignment->title,
-            'titleEn' => $assignment->title_en,
-            'description' => $assignment->description,
-            'descriptionEn' => $assignment->description_en,
-            'dueDate' => $assignment->due_at?->toISOString(),
-            'isPublished' => $assignment->is_published,
-            'position' => $assignment->position,
-        ]], 201);
+        return response()->json(['data' => app(AssignmentWorkflowService::class)->serialize($assignment)], 201);
+    }
+
+    public function assignments(Request $request, Course $course): JsonResponse
+    {
+        $this->ensureAssigned($request, $course);
+        $records = Assignment::whereHas('lesson', fn ($q) => $q->where('course_id', $course->id))
+            ->with('lesson:id,slug,title,title_en')->withCount('submissions')->orderBy('lesson_id')->orderBy('position')->orderBy('id')->paginate(20);
+        $records->through(fn ($assignment) => app(AssignmentWorkflowService::class)->serialize($assignment) + [
+            'lesson' => ['slug' => $assignment->lesson->slug, 'title' => $assignment->lesson->title, 'titleEn' => $assignment->lesson->title_en],
+            'submissionsCount' => $assignment->submissions_count,
+        ]);
+
+        return response()->json($records);
+    }
+
+    public function updateAssignment(UpsertAssignmentRequest $request, Course $course, Assignment $assignment, AuditService $audit): JsonResponse
+    {
+        $this->ensureAssigned($request, $course);
+        abort_unless($assignment->lesson->course_id === $course->id, 404);
+        abort_if($course->archived_at, 409);
+        $before = $assignment->attributesToArray();
+        $assignment->update($request->validated());
+        $audit->record($request, 'teacher.assignment.updated', $assignment, $before);
+
+        return response()->json(['data' => app(AssignmentWorkflowService::class)->serialize($assignment)]);
     }
 
     public function submissions(Request $request, Course $course): JsonResponse
     {
         $this->ensureAssigned($request, $course);
+        $filters = $request->validate([
+            'assignment_id' => ['nullable', 'integer'],
+            'status' => ['nullable', 'in:submitted,late,resubmitted,returned,graded'],
+        ]);
         $submissions = AssignmentSubmission::query()
             ->whereHas('assignment.lesson', fn ($query) => $query->where('course_id', $course->id))
+            ->when($filters['assignment_id'] ?? null, fn ($q, $id) => $q->where('assignment_id', $id))
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
             ->with(['assignment:id,lesson_id,title,title_en', 'user:id,name,email'])
-            ->latest('submitted_at')->limit(100)->get();
+            ->latest('submitted_at')->orderByDesc('id')->paginate(20);
 
-        return response()->json(['data' => $submissions->map(fn (AssignmentSubmission $submission) => $this->submission($submission))->values()]);
+        return response()->json([
+            'data' => $submissions->getCollection()->map(fn (AssignmentSubmission $submission) => $this->submission($submission))->values(),
+            'current_page' => $submissions->currentPage(), 'last_page' => $submissions->lastPage(), 'total' => $submissions->total(),
+        ]);
     }
 
-    public function gradeSubmission(Request $request, Course $course, AssignmentSubmission $submission, AuditService $audit): JsonResponse
+    public function gradeSubmission(Request $request, Course $course, AssignmentSubmission $submission): JsonResponse
     {
         $this->ensureAssigned($request, $course);
         $submission->loadMissing(['assignment.lesson', 'user:id,name,email']);
         abort_unless($submission->assignment?->lesson?->course_id === $course->id, 404);
-        $data = $request->validate(['score' => ['required', 'integer', 'min:0', 'max:100'], 'feedback' => ['nullable', 'string', 'max:5000']]);
-        $before = $submission->attributesToArray();
-        $submission->update(['score' => $data['score'], 'feedback' => $data['feedback'] ?? null, 'graded_by' => $request->user()->id, 'graded_at' => now(), 'status' => 'graded']);
-        $audit->record($request, 'teacher.assignment_submission.graded', $submission, $before);
-        $submission->user?->userNotifications()->create(['type' => 'assignment_graded', 'title' => 'Assignment graded', 'title_ar' => 'تم تصحيح المهمة', 'message' => $submission->assignment->title, 'message_ar' => $submission->assignment->title, 'action_url' => '/course-player/'.$course->id]);
+        $submission = app(AssignmentWorkflowService::class)->review($request, $submission, false, 'teacher');
 
-        return response()->json(['data' => $this->submission($submission->refresh()->load(['assignment:id,lesson_id,title,title_en', 'user:id,name,email']))]);
+        return response()->json(['data' => $this->submission($submission)]);
     }
 
-    public function returnSubmission(Request $request, Course $course, AssignmentSubmission $submission, AuditService $audit): JsonResponse
+    public function returnSubmission(Request $request, Course $course, AssignmentSubmission $submission): JsonResponse
     {
         $this->ensureAssigned($request, $course);
         $submission->loadMissing(['assignment.lesson', 'user:id,name,email']);
         abort_unless($submission->assignment?->lesson?->course_id === $course->id, 404);
-        $data = $request->validate(['feedback' => ['required', 'string', 'min:1', 'max:5000']]);
-        $before = $submission->attributesToArray();
-        $submission->update(['status' => 'returned', 'feedback' => $data['feedback'], 'score' => null, 'graded_by' => $request->user()->id, 'graded_at' => now()]);
-        $audit->record($request, 'teacher.assignment_submission.returned', $submission, $before);
-        $submission->user?->userNotifications()->create(['type' => 'assignment_returned', 'title' => 'Assignment returned for revision', 'title_ar' => 'تمت إعادة المهمة للمراجعة', 'message' => $submission->assignment->title, 'message_ar' => $submission->assignment->title, 'action_url' => '/course-player/'.$course->id]);
+        $submission = app(AssignmentWorkflowService::class)->review($request, $submission, true, 'teacher');
 
-        return response()->json(['data' => $this->submission($submission->refresh()->load(['assignment:id,lesson_id,title,title_en', 'user:id,name,email']))]);
+        return response()->json(['data' => $this->submission($submission)]);
     }
 
     public function submissionFile(Request $request, Course $course, AssignmentSubmission $submission): BinaryFileResponse
@@ -419,14 +444,13 @@ class TeacherWorkspaceController extends Controller
         $this->ensureAssigned($request, $course);
         $submission->loadMissing('assignment.lesson');
         abort_unless($submission->assignment?->lesson?->course_id === $course->id, 404);
-        abort_unless($submission->file_path && Storage::disk('local')->exists($submission->file_path), 404);
 
-        return response()->download(Storage::disk('local')->path($submission->file_path), $submission->file_original_name, ['X-Content-Type-Options' => 'nosniff', 'Cache-Control' => 'private, no-store']);
+        return app(AssignmentWorkflowService::class)->download($submission);
     }
 
     private function submission(AssignmentSubmission $submission): array
     {
-        return ['id' => $submission->id, 'assignment' => ['id' => $submission->assignment->id, 'title' => $submission->assignment->title, 'titleEn' => $submission->assignment->title_en], 'student' => ['id' => $submission->user->id, 'name' => $submission->user->name, 'email' => $submission->user->email], 'body' => $submission->body, 'fileName' => $submission->file_original_name, 'fileMime' => $submission->file_mime, 'fileSize' => $submission->file_size, 'status' => $submission->status, 'score' => $submission->score, 'feedback' => $submission->feedback, 'submittedAt' => $submission->submitted_at?->toISOString(), 'gradedAt' => $submission->graded_at?->toISOString()];
+        return ['id' => $submission->id, 'assignment' => ['id' => $submission->assignment->id, 'title' => $submission->assignment->title, 'titleEn' => $submission->assignment->title_en], 'student' => ['id' => $submission->user->id, 'name' => $submission->user->name, 'email' => $submission->user->email], 'body' => $submission->body, 'fileName' => $submission->file_original_name, 'fileMime' => $submission->file_mime, 'fileSize' => $submission->file_size, 'status' => $submission->status, 'score' => $submission->score, 'feedback' => $submission->feedback, 'submittedAt' => $submission->submitted_at?->toISOString(), 'gradedAt' => $submission->graded_at?->toISOString(), 'reviewVersion' => app(AssignmentWorkflowService::class)->reviewVersion($submission)];
     }
 
     public function escalateToGuardians(Request $request, Course $course, User $student, AuditService $audit): JsonResponse
@@ -451,7 +475,7 @@ class TeacherWorkspaceController extends Controller
                 'title_ar' => 'مطلوب متابعة الطالب',
                 'message' => $data['reason'],
                 'message_ar' => $data['reason'],
-                'action_url' => '/parent/students/'.$student->id,
+                'action_url' => '/parent-dashboard/'.$student->id,
             ]);
         }
         $audit->record($request, 'teacher.guardian_escalation.created', $activity);
@@ -484,7 +508,7 @@ class TeacherWorkspaceController extends Controller
                 'title_ar' => 'تم الرد على سؤالك',
                 'message' => $lessonModel->title,
                 'message_ar' => $lessonModel->title,
-                'action_url' => '/course-player/'.$course->id.'?lesson='.$lessonModel->slug,
+                'action_url' => '/course-player/'.$course->id.'?'.http_build_query(['lesson' => $lessonModel->slug, 'tab' => 'discussion', 'comment' => $comment->id]),
                 'data' => ['courseId' => $course->id, 'lessonId' => $lessonModel->id, 'commentId' => $comment->id],
             ]);
         }

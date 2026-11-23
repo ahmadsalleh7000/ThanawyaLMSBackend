@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\AddSecurityHeaders;
+use App\Http\Middleware\ApiLocale;
 use App\Http\Middleware\EnsureAccountIsActive;
 use App\Http\Middleware\EnsureAdminPermission;
 use App\Http\Middleware\EnsurePasswordHasBeenChanged;
@@ -37,6 +38,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 | Request::HEADER_X_FORWARDED_PROTO
                 | Request::HEADER_X_FORWARDED_PREFIX,
         );
+        $middleware->append(ApiLocale::class);
         $middleware->append(AddSecurityHeaders::class);
         $middleware->append(RecordRequestMetrics::class);
         $middleware->alias([

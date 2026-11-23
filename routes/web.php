@@ -6,6 +6,7 @@ use App\Http\Controllers\Web\Admin\AdminAcademicStructureController;
 use App\Http\Controllers\Web\Admin\AdminAnalyticsController;
 use App\Http\Controllers\Web\Admin\AdminAnnouncementController;
 use App\Http\Controllers\Web\Admin\AdminAssessmentController;
+use App\Http\Controllers\Web\Admin\AdminAssignmentController;
 use App\Http\Controllers\Web\Admin\AdminAuthController;
 use App\Http\Controllers\Web\Admin\AdminCommerceController;
 use App\Http\Controllers\Web\Admin\AdminContactMessageController;
@@ -13,6 +14,7 @@ use App\Http\Controllers\Web\Admin\AdminCourseController;
 use App\Http\Controllers\Web\Admin\AdminCourseOperationsController;
 use App\Http\Controllers\Web\Admin\AdminDashboardController;
 use App\Http\Controllers\Web\Admin\AdminEnrollmentController;
+use App\Http\Controllers\Web\Admin\AdminExamHubController;
 use App\Http\Controllers\Web\Admin\AdminInstructorController;
 use App\Http\Controllers\Web\Admin\AdminLearningPathController;
 use App\Http\Controllers\Web\Admin\AdminLessonCommentController;
@@ -51,6 +53,17 @@ Route::middleware('guest')->group(function () {
 
 Route::prefix('admin')->name('admin.')->middleware(['auth', 'active', 'admin.permission'])->group(function () {
     Route::get('/', AdminDashboardController::class)->name('dashboard');
+    Route::get('/assignments', [AdminAssignmentController::class, 'index'])->name('assignments.index');
+    Route::get('/assignments/create', [AdminAssignmentController::class, 'create'])->name('assignments.create');
+    Route::post('/assignments', [AdminAssignmentController::class, 'store'])->name('assignments.store');
+    Route::get('/assignments/{assignment}/edit', [AdminAssignmentController::class, 'edit'])->name('assignments.edit');
+    Route::put('/assignments/{assignment}', [AdminAssignmentController::class, 'update'])->name('assignments.update');
+    Route::delete('/assignments/{assignment}', [AdminAssignmentController::class, 'destroy'])->name('assignments.destroy');
+    Route::get('/assignments/{assignment}/submissions', [AdminAssignmentController::class, 'submissions'])->name('assignments.submissions');
+    Route::patch('/assignments/{assignment}/submissions/{submission}', [AdminAssignmentController::class, 'review'])->name('assignments.review');
+    Route::get('/assignments/{assignment}/submissions/{submission}/file', [AdminAssignmentController::class, 'file'])->middleware('throttle:60,1')->name('assignments.file');
+    Route::get('/exams', [AdminExamHubController::class, 'index'])->name('exams.index');
+    Route::get('/exams/trainings/{training}/attempts', [AdminExamHubController::class, 'trainingAttempts'])->name('exams.training-attempts');
     Route::get('/academics', [AdminAcademicStructureController::class, 'index'])->name('academics.index');
     Route::get('/learning-paths', [AdminLearningPathController::class, 'index'])->name('learning-paths.index');
     Route::get('/learning-paths/courses/{course}', [AdminLearningPathController::class, 'showCourse'])->name('learning-paths.courses.show');
@@ -66,6 +79,8 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'active', 'admin.per
     Route::post('/learning-paths/courses/{course}/units/{unit}/lessons', [AdminLearningPathController::class, 'storeLesson'])->name('learning-paths.lessons.store');
     Route::post('/learning-paths/{type}/{id}/trainings', [AdminLearningPathController::class, 'storeTraining'])->name('learning-paths.trainings.store');
     Route::delete('/learning-paths/trainings/{training}', [AdminLearningPathController::class, 'destroyTraining'])->name('learning-paths.trainings.destroy');
+    Route::get('/learning-paths/trainings/{training}/settings', [AdminLearningPathController::class, 'trainingSettings'])->name('learning-paths.trainings.settings');
+    Route::put('/learning-paths/trainings/{training}/settings', [AdminLearningPathController::class, 'updateTrainingSettings'])->name('learning-paths.trainings.settings.update');
     Route::post('/learning-paths/trainings/{training}/questions', [AdminLearningPathController::class, 'attachQuestion'])->name('learning-paths.trainings.questions.attach');
     Route::post('/learning-paths/{type}/{id}/state', [AdminLearningPathController::class, 'state'])->name('learning-paths.state');
     Route::post('/learning-paths/{type}/{id}/move/{direction}', [AdminLearningPathController::class, 'move'])->name('learning-paths.move');
@@ -113,6 +128,7 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'active', 'admin.per
     Route::get('/courses/{course}/questions/{question}/edit', [AdminAssessmentController::class, 'editQuestion'])->name('questions.edit');
     Route::put('/courses/{course}/questions/{question}', [AdminAssessmentController::class, 'updateQuestion'])->name('questions.update');
     Route::post('/courses/{course}/questions/{question}/move/{direction}', [AdminAssessmentController::class, 'moveQuestion'])->name('questions.move');
+    Route::post('/courses/{course}/questions/{question}/toggle', [AdminAssessmentController::class, 'toggleQuestion'])->name('questions.toggle');
     Route::delete('/courses/{course}/questions/{question}', [AdminAssessmentController::class, 'destroyQuestion'])->name('questions.destroy');
     Route::get('/courses/{course}/assessment/attempts', [AdminAssessmentController::class, 'attempts'])->name('assessment.attempts');
     Route::post('/courses/{course}/lessons/{lesson}/content-pdf', [AdminMediaController::class, 'storeLessonPdf'])->name('lesson-pdf.store');

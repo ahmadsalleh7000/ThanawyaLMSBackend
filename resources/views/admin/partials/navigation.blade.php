@@ -12,6 +12,8 @@
             <x-admin.nav-link :href="route('admin.academics.index')" :active="request()->routeIs('admin.academics.*')" icon="analytics" label="الهيكل الأكاديمي" />
             <x-admin.nav-link :href="route('admin.learning-paths.index')" :active="request()->routeIs('admin.learning-paths.*')" icon="course" label="المسارات التعليمية" />
             <x-admin.nav-link :href="route('admin.courses.index')" :active="request()->routeIs('admin.courses.*', 'admin.lessons.*', 'admin.assessment.*', 'admin.questions.*', 'admin.media.*')" icon="course" label="الدورات والمحتوى" />
+            <x-admin.nav-link :href="route('admin.exams.index')" :active="request()->routeIs('admin.exams.*')" icon="question" label="الاختبارات والامتحانات" />
+            <x-admin.nav-link :href="route('admin.assignments.index')" :active="request()->routeIs('admin.assignments.*')" icon="course" label="مهام الدروس" />
             <x-admin.nav-link :href="route('admin.question-bank.index')" :active="request()->routeIs('admin.question-bank.*')" icon="question" label="بنك الأسئلة" />
             <x-admin.nav-link :href="route('admin.media-library.index')" :active="request()->routeIs('admin.media-library.*')" icon="media" label="مكتبة الوسائط" />
         @endif

@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\AssessmentAttempt;
 use App\Models\User;
+use App\Services\ExamDeliveryService;
+use App\Services\ExamGradingService;
 use App\Services\StudentContentAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,13 +25,14 @@ class StudentRecommendationController extends Controller
                 if (! $course || ! $access->canAccessCourse($request->user(), $course)) {
                     return;
                 }
-                $answers = $attempt->answers ?: [];
-                foreach ($attempt->assessment->questions as $question) {
+                $questions = app(ExamDeliveryService::class)->questions($attempt->assessment, $request->user()->id, $attempt->question_snapshot);
+                $answers = app(ExamDeliveryService::class)->displayedAnswers($attempt->answers ?: [], $questions);
+                foreach ($questions as $question) {
                     $answer = $answers[$question->id] ?? $answers[(string) $question->id] ?? null;
                     $key = $course->id.'|'.($question->topic ?: 'general');
                     $item = $recommendations->get($key, ['courseId' => $course->id, 'course' => $course->title, 'courseEn' => $course->title_en, 'topic' => $question->topic ?: 'General practice', 'topicAr' => $question->topic_ar ?: 'تدريب عام', 'attempted' => 0, 'incorrect' => 0, 'score' => 0]);
                     $item['attempted']++;
-                    if (! $this->correct($question, $answer)) {
+                    if (! app(ExamGradingService::class)->answerIsCorrect($question, $answer)) {
                         $item['incorrect']++;
                     }
                     $item['score'] = (int) round((1 - ($item['incorrect'] / max($item['attempted'], 1))) * 100);
@@ -37,23 +40,6 @@ class StudentRecommendationController extends Controller
                 }
             });
 
-        return response()->json(['data' => $recommendations->filter(fn ($item) => $item['incorrect'] > 0)->sortBy(fn ($item) => [$item['score'], -$item['incorrect']])->take(5)->values()->map(fn ($item) => $item + ['url' => '/courses/'.$item['courseId'].'/assessment'])->all()]);
-    }
-
-    private function correct($question, mixed $answer): bool
-    {
-        if ($question->type === 'multiple_select') {
-            $expected = array_map('intval', $question->correct_options ?? []);
-            $actual = is_array($answer) ? array_map('intval', $answer) : [];
-            sort($expected);
-            sort($actual);
-
-            return $actual === $expected;
-        }
-        if (in_array($question->type, ['short_answer', 'fill_in_blank'], true)) {
-            return is_string($answer) && mb_strtolower(trim($answer)) === mb_strtolower(trim((string) $question->correct_answer));
-        }
-
-        return $answer !== null && (int) $answer === (int) $question->correct_option;
+        return response()->json(['data' => $recommendations->filter(fn ($item) => $item['incorrect'] > 0)->sortBy(fn ($item) => [$item['score'], -$item['incorrect']])->take(5)->values()->map(fn ($item) => $item + ['url' => '/my-assessments/results?course_id='.rawurlencode($item['courseId'])])->all()]);
     }
 }

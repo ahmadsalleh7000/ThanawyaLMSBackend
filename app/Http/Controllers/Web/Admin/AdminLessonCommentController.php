@@ -33,7 +33,7 @@ class AdminLessonCommentController extends Controller
                 'title_ar' => 'تم الرد على سؤالك',
                 'message' => $lesson->title,
                 'message_ar' => $lesson->title,
-                'action_url' => '/course-player/'.$course->id.'?lesson='.$lesson->slug,
+                'action_url' => '/course-player/'.$course->id.'?'.http_build_query(['lesson' => $lesson->slug, 'tab' => 'discussion', 'comment' => $comment->id]),
                 'data' => ['courseId' => $course->id, 'lessonId' => $lesson->id, 'commentId' => $comment->id],
             ]);
         }

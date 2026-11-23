@@ -7,6 +7,7 @@ use App\Models\Course;
 use App\Models\QuestionBankQuestion;
 use App\Models\QuestionBankQuiz;
 use App\Services\AuditService;
+use App\Services\QuestionAuthoringService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,13 +18,14 @@ class AdminQuestionBankController extends Controller
 {
     public function index(Request $request): View
     {
-        $filters = validator($request->only(['difficulty', 'type', 'status', 'topic', 'usage', 'tab', 'view']), [
+        $filters = validator($request->only(['difficulty', 'type', 'status', 'topic', 'usage', 'tab', 'view', 'quiz_id']), [
             'difficulty' => ['nullable', Rule::in(['easy', 'medium', 'hard'])],
-            'type' => ['nullable', Rule::in(['single_choice', 'true_false'])],
+            'type' => ['nullable', Rule::in(QuestionBankQuestion::TYPES)],
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
             'topic' => ['nullable', 'string', 'max:150'],
             'usage' => ['nullable', Rule::in(['used', 'unused'])],
             'tab' => ['nullable', Rule::in(['questions', 'quizzes'])],
+            'quiz_id' => ['nullable', 'integer', 'exists:question_bank_quizzes,id'],
             'view' => ['nullable', Rule::in(['table', 'grid'])],
         ])->validate();
         $search = $request->string('search')->trim()->toString();
@@ -41,13 +43,14 @@ class AdminQuestionBankController extends Controller
         return view('admin.question-bank.index', [
             'questions' => $questions,
             'quizzes' => QuestionBankQuiz::query()->with('questions')->withCount('questions')
+                ->when($filters['quiz_id'] ?? null, fn ($query, $id) => $query->whereKey($id))
                 ->when($quizSearch, fn ($query) => $query->where(fn ($inner) => $inner->where('name_ar', 'like', '%'.$quizSearch.'%')->orWhere('name_en', 'like', '%'.$quizSearch.'%')))
                 ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('is_active', $status === 'active'))
                 ->latest()->paginate(8, ['*'], 'quiz_page')->withQueryString(),
             'activeQuestions' => QuestionBankQuestion::where('is_active', true)->withCount('quizzes')->orderBy('topic_ar')->limit(80)->get(['id', 'type', 'difficulty', 'topic_ar', 'prompt_ar']),
             'search' => $search,
             'quizSearch' => $quizSearch,
-            'activeTab' => $filters['tab'] ?? 'questions',
+            'activeTab' => isset($filters['quiz_id']) ? 'quizzes' : ($filters['tab'] ?? 'questions'),
             'display' => $filters['view'] ?? 'table',
             'topics' => QuestionBankQuestion::query()->select('topic_ar')->distinct()->orderBy('topic_ar')->pluck('topic_ar'),
             'stats' => [
@@ -72,7 +75,7 @@ class AdminQuestionBankController extends Controller
 
     public function store(Request $request, AuditService $audit): RedirectResponse
     {
-        $question = QuestionBankQuestion::create($this->data($request) + ['created_by' => $request->user()->id, 'is_active' => true]);
+        $question = QuestionBankQuestion::create(app(QuestionAuthoringService::class)->data($request) + ['created_by' => $request->user()->id, 'is_active' => true]);
         $audit->record($request, 'question_bank.created', $question);
 
         return back()->with('success', 'تمت إضافة السؤال إلى البنك.');
@@ -81,7 +84,7 @@ class AdminQuestionBankController extends Controller
     public function update(Request $request, QuestionBankQuestion $question, AuditService $audit): RedirectResponse
     {
         $before = $question->attributesToArray();
-        $question->update($this->data($request));
+        $question->update(app(QuestionAuthoringService::class)->data($request));
         $audit->record($request, 'question_bank.updated', $question, $before);
 
         return back()->with('success', 'تم تحديث سؤال البنك. لن تتغير النسخ المستخدمة سابقاً.');
@@ -223,36 +226,13 @@ class AdminQuestionBankController extends Controller
             $copy = $assessment->questions()->create([
                 'question_bank_question_id' => $bankQuestion->id, 'type' => $bankQuestion->type, 'difficulty' => $bankQuestion->difficulty,
                 'topic' => $bankQuestion->topic, 'topic_ar' => $bankQuestion->topic_ar, 'prompt' => $bankQuestion->prompt, 'prompt_ar' => $bankQuestion->prompt_ar,
-                'options' => $bankQuestion->options, 'options_ar' => $bankQuestion->options_ar, 'correct_option' => $bankQuestion->correct_option,
+                'options' => $bankQuestion->options, 'options_ar' => $bankQuestion->options_ar, 'correct_option' => $bankQuestion->correct_option, 'correct_options' => $bankQuestion->correct_options, 'correct_answer' => $bankQuestion->correct_answer,
                 'explanation' => $bankQuestion->explanation, 'explanation_ar' => $bankQuestion->explanation_ar, 'position' => $position,
             ]);
             $audit->record($request, 'assessment_question.imported', $copy);
         }
 
         return back()->with('success', 'تم استيراد الأسئلة المختارة إلى التقييم كنسخ مستقلة.');
-    }
-
-    private function data(Request $request): array
-    {
-        $data = $request->validate([
-            'type' => ['required', Rule::in(['single_choice', 'true_false'])], 'difficulty' => ['required', Rule::in(['easy', 'medium', 'hard'])],
-            'topic' => ['required', 'string', 'max:150'], 'topic_ar' => ['required', 'string', 'max:150'],
-            'prompt' => ['required', 'string', 'max:3000'], 'prompt_ar' => ['required', 'string', 'max:3000'],
-            'options_text' => ['nullable', 'required_if:type,single_choice', 'string'], 'options_ar_text' => ['nullable', 'required_if:type,single_choice', 'string'],
-            'correct_option' => ['required', 'integer', 'min:0'], 'explanation' => ['required', 'string', 'max:3000'], 'explanation_ar' => ['required', 'string', 'max:3000'],
-        ]);
-        [$options, $optionsAr] = $data['type'] === 'true_false'
-            ? [['True', 'False'], ['صحيح', 'خطأ']]
-            : [$this->lines($data['options_text']), $this->lines($data['options_ar_text'])];
-        abort_unless(count($options) >= 2 && count($options) === count($optionsAr) && $data['correct_option'] < count($options), 422, 'يجب إدخال اختيارات واضحة وتحديد إجابة صحيحة واحدة.');
-        unset($data['options_text'], $data['options_ar_text']);
-
-        return $data + ['options' => $options, 'options_ar' => $optionsAr];
-    }
-
-    private function lines(string $value): array
-    {
-        return array_values(array_filter(array_map('trim', explode("\n", str_replace("\r", '', $value)))));
     }
 
     private function normalizeQuizQuestionPositions(QuestionBankQuiz $quiz): void

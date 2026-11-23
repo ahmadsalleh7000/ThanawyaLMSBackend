@@ -44,9 +44,9 @@ class CourseDuplicationService
                 }
             }
             if ($source->assessment) {
-                $assessment = $copy->assessment()->create(collect($source->assessment->attributesToArray())->only(['duration_minutes', 'passing_score', 'randomize_questions', 'question_limit'])->all() + ['is_published' => false]);
+                $assessment = $copy->assessment()->create(collect($source->assessment->attributesToArray())->only(['duration_minutes', 'passing_score', 'randomize_questions', 'question_limit', 'max_retries', 'retry_delay_minutes', 'allow_retake_after_pass', 'randomize_options', 'show_correct_answers', 'show_explanations', 'require_all_answers', 'allow_question_navigation'])->all() + ['is_published' => false]);
                 foreach ($source->assessment->questions as $question) {
-                    $assessment->questions()->create(collect($question->attributesToArray())->only(['question_bank_question_id', 'type', 'difficulty', 'topic', 'topic_ar', 'prompt', 'prompt_ar', 'options', 'options_ar', 'correct_option', 'explanation', 'explanation_ar', 'position'])->all());
+                    $assessment->questions()->create(collect($question->attributesToArray())->only(['question_bank_question_id', 'type', 'difficulty', 'topic', 'topic_ar', 'prompt', 'prompt_ar', 'options', 'options_ar', 'correct_option', 'correct_options', 'correct_answer', 'explanation', 'explanation_ar', 'position', 'is_active'])->all());
                 }
             }
 

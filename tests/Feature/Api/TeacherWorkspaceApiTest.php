@@ -89,7 +89,7 @@ class TeacherWorkspaceApiTest extends TestCase
         $this->postJson("/api/teacher/courses/{$assigned->id}/lessons/{$lesson->slug}/comments/{$question->id}/reply", ['content' => 'Start with the first example.'])
             ->assertCreated()
             ->assertJsonPath('data.author.role', 'teacher');
-        $this->assertDatabaseHas('user_notifications', ['user_id' => $student->id, 'type' => 'lesson_comment', 'action_url' => "/course-player/{$assigned->id}?lesson={$lesson->slug}"]);
+        $this->assertDatabaseHas('user_notifications', ['user_id' => $student->id, 'type' => 'lesson_comment', 'action_url' => "/course-player/{$assigned->id}?lesson={$lesson->slug}&tab=discussion&comment={$question->id}"]);
         $this->assertDatabaseHas('audit_logs', ['action' => 'teacher.lesson_comment.replied', 'user_id' => $teacher->id]);
     }
 

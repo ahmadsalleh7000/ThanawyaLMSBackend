@@ -52,8 +52,20 @@ class StudentOnboardingController extends Controller
         return response()->json(['data' => $this->serialize($profile)]);
     }
 
+    public function dismissTour(Request $request): JsonResponse
+    {
+        $data = $request->validate(['status' => ['required', Rule::in(['completed', 'skipped'])]]);
+        $profile = StudentOnboardingProfile::firstOrCreate(['student_id' => $request->user()->id]);
+        // Closing a replay must not undo a completed tour.
+        if ($profile->tour_status !== 'completed') {
+            $profile->update(['tour_status' => $data['status'], 'tour_dismissed_at' => now()]);
+        }
+
+        return response()->json(['data' => $this->serialize($profile)]);
+    }
+
     private function serialize(StudentOnboardingProfile $profile): array
     {
-        return ['grade' => $profile->grade, 'semester' => $profile->semester, 'learningGoal' => $profile->learning_goal, 'experienceLevel' => $profile->experience_level, 'weeklyGoalMinutes' => $profile->weekly_goal_minutes, 'placementScore' => $profile->placement_score, 'recommendedLevel' => $profile->recommended_level, 'recommendedCourse' => $profile->recommendedCourse, 'completed' => (bool) $profile->completed_at, 'completedAt' => $profile->completed_at?->toISOString(), 'skipped' => (bool) $profile->skipped_at, 'skippedAt' => $profile->skipped_at?->toISOString()];
+        return ['tourStatus' => $profile->tour_status, 'tourDismissedAt' => $profile->tour_dismissed_at?->toISOString(), 'grade' => $profile->grade, 'semester' => $profile->semester, 'learningGoal' => $profile->learning_goal, 'experienceLevel' => $profile->experience_level, 'weeklyGoalMinutes' => $profile->weekly_goal_minutes, 'placementScore' => $profile->placement_score, 'recommendedLevel' => $profile->recommended_level, 'recommendedCourse' => $profile->recommendedCourse, 'completed' => (bool) $profile->completed_at, 'completedAt' => $profile->completed_at?->toISOString(), 'skipped' => (bool) $profile->skipped_at, 'skippedAt' => $profile->skipped_at?->toISOString()];
     }
 }

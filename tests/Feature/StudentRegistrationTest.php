@@ -118,7 +118,7 @@ class StudentRegistrationTest extends TestCase
         $this->assertSame($reviewer->id, $student->registration_reviewed_by);
         $this->assertSame('The transfer reference could not be matched. Please contact support.', $student->registration_rejection_reason);
         $this->postJson('/api/auth/login', ['email' => $student->email, 'password' => 'StrongPassword123!'])
-            ->assertUnprocessable()->assertJsonValidationErrors('email');
+            ->assertOk()->assertJsonPath('paymentOnly', true);
     }
 
     public function test_admin_can_prepare_a_secure_guardian_whatsapp_web_handoff_after_approval(): void

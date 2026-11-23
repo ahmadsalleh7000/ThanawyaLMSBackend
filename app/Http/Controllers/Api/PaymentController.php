@@ -59,7 +59,7 @@ class PaymentController extends Controller
         abort_unless(in_array($provider, ['local', 'stripe', 'manual_transfer'], true), 503, 'The payment provider is not configured.');
         $manualChannels = $manualSettings->channels();
         if ($provider === 'manual_transfer') {
-            abort_unless(isset($manualChannels[$validated['payment_method']]) && filled($manualChannels[$validated['payment_method']]['destination']), 422, 'This payment channel is unavailable.');
+            abort_unless(isset($manualChannels[$validated['payment_method']]) && filled($manualChannels[$validated['payment_method']]['destination']), 422, __('This payment channel is unavailable.'));
         } else {
             abort_unless($validated['payment_method'] === 'card', 422, 'Only card payments are available through this provider.');
         }

@@ -116,4 +116,28 @@ class StudentContentAccessService
             && (! $media->available_from || $media->available_from->isPast())
             && (! $media->available_until || $media->available_until->isFuture());
     }
+
+    public function lessonLockReason(?User $user, Lesson $lesson, ?bool $courseAccess = null): ?string
+    {
+        if ($lesson->status !== 'published' || ($lesson->unit && $lesson->unit->status !== 'published')) {
+            return 'unpublished';
+        }
+        if ($lesson->available_from?->isFuture() || $lesson->unit?->available_from?->isFuture()) {
+            return 'scheduled';
+        }
+        if ($lesson->available_until?->isPast() || $lesson->unit?->available_until?->isPast()) {
+            return 'expired';
+        }
+        if ($lesson->is_preview || ! $user) {
+            return $lesson->is_preview ? null : 'subscription';
+        }
+        if (! ($courseAccess ?? $this->canAccessCourse($user, $lesson->course))) {
+            return 'subscription';
+        }
+        if ($lesson->prerequisites->contains(fn ($rule) => ! $user->lessonCompletions->contains('lesson_id', $rule->prerequisite_lesson_id))) {
+            return 'prerequisite';
+        }
+
+        return null;
+    }
 }

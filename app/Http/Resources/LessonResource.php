@@ -2,6 +2,9 @@
 
 namespace App\Http\Resources;
 
+use App\Models\AssignmentSubmission;
+use App\Services\AssignmentWorkflowService;
+use App\Services\ExamDeliveryService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\URL;
@@ -16,11 +19,23 @@ class LessonResource extends JsonResource
     public function toArray(Request $request): array
     {
         $student = $request->user('sanctum');
-        $canAccessContent = $this->is_preview
+        $canAccessContent = ($this->is_preview && ! $this->getAttribute('lock_reason'))
             || (bool) $this->getAttribute('content_access_granted')
             || $student?->isAdmin();
+        $metadata = [
+            'id' => $this->slug, 'databaseId' => $this->id, 'title' => $this->title, 'titleEn' => $this->title_en,
+            'duration' => $this->duration_minutes.'m', 'durationMinutes' => (int) $this->duration_minutes,
+            'preview' => $this->is_preview, 'locked' => (bool) $this->getAttribute('lock_reason'),
+            'lockReason' => $this->getAttribute('lock_reason'),
+            'availableFrom' => ($this->available_from ?? $this->unit?->available_from)?->toISOString(),
+            'availableUntil' => ($this->available_until ?? $this->unit?->available_until)?->toISOString(),
+            'unitId' => $this->unit_id, 'unitPosition' => $this->unit?->position, 'unitTitle' => $this->unit?->title_ar, 'unitTitleEn' => $this->unit?->title_en,
+        ];
+        if ($request->query('view') === 'catalog') {
+            return $metadata;
+        }
         $assets = $canAccessContent && $this->relationLoaded('mediaAssets')
-            ? $this->mediaAssets->filter(fn ($asset) => ! $asset->libraryItem || ($asset->libraryItem->processing_status === 'ready' && ! $asset->libraryItem->archived_at))
+            ? $this->mediaAssets->filter(fn ($asset) => $asset->status === 'published' && ! $asset->available_from?->isFuture() && ! $asset->available_until?->isPast() && (! $asset->libraryItem || ($asset->libraryItem->processing_status === 'ready' && ! $asset->libraryItem->archived_at)))
             : collect();
 
         $pdfAsset = $canAccessContent && $this->content_pdf_media_id
@@ -44,16 +59,11 @@ class LessonResource extends JsonResource
             : collect();
 
         $studentId = $student?->id;
+        $assignmentSubmissions = $studentId && $assignments->isNotEmpty()
+            ? AssignmentSubmission::where('user_id', $studentId)->whereIn('assignment_id', $assignments->pluck('id'))->get()->keyBy('assignment_id')
+            : collect();
 
-        return ['id' => $this->slug, 'databaseId' => $this->id, 'title' => $this->title, 'titleEn' => $this->title_en, 'duration' => $this->duration_minutes.'m', 'durationMinutes' => (int) $this->duration_minutes, 'preview' => $this->is_preview, 'videoUrl' => $canAccessContent ? $this->video_url : null, 'assignments' => $assignments->map(fn ($assignment) => [
-            'id' => $assignment->id,
-            'title' => $assignment->title,
-            'titleEn' => $assignment->title_en,
-            'description' => $assignment->description,
-            'descriptionEn' => $assignment->description_en,
-            'dueDate' => $assignment->due_at?->toISOString(),
-            'status' => 'ready',
-        ])->values(), 'contentPdf' => [
+        return $metadata + ['id' => $this->slug, 'databaseId' => $this->id, 'title' => $this->title, 'titleEn' => $this->title_en, 'duration' => $this->duration_minutes.'m', 'durationMinutes' => (int) $this->duration_minutes, 'preview' => $this->is_preview, 'videoUrl' => $canAccessContent ? $this->video_url : null, 'assignments' => $assignments->sortBy('position')->map(fn ($assignment) => app(AssignmentWorkflowService::class)->serialize($assignment, $assignmentSubmissions->get($assignment->id)))->values(), 'contentPdf' => [
             'enabled' => $canAccessContent && $this->content_pdf_enabled && ($pdfAsset || filled($contentPdfUrl)),
             'mediaId' => $pdfAsset?->id,
             'url' => $contentPdfUrl,
@@ -68,6 +78,7 @@ class LessonResource extends JsonResource
             'anchor' => $section->anchor(),
         ])->values(), 'objectives' => $canAccessContent ? $this->objectives : null, 'keyPoints' => $canAccessContent ? $this->key_points : null, 'summary' => $canAccessContent ? $this->summary : null, 'completionRules' => $this->completion_rules ?: [], 'learningState' => [
             'contentOpened' => (bool) $workspace?->content_opened_at,
+            'videoConfirmed' => (bool) $workspace?->video_confirmed_at,
             'practicePassed' => (bool) $workspace?->practice_passed_at,
             'playbackSeconds' => (int) ($workspace?->playback_seconds ?? 0),
         ], 'trainings' => $trainings->map(function ($training) use ($studentId) {
@@ -89,9 +100,8 @@ class LessonResource extends JsonResource
                 'instructionsEn' => $training->instructions_en,
                 'isRequired' => (bool) $training->is_required,
                 'passingScore' => $training->passing_score,
-                'questionsCount' => $training->question_bank_quiz_id && $training->relationLoaded('quiz') && $training->quiz
-                    ? $training->quiz->questions->count()
-                    : ($training->questions_count ?? ($training->relationLoaded('questions') ? $training->questions->count() : 0)),
+                'policy' => $studentId ? app(ExamDeliveryService::class)->state($training, $studentId) : null,
+                'questionsCount' => $training->question_limit ? min($training->questionSet()->count(), $training->question_limit) : $training->questionSet()->count(),
                 'bestAttempt' => $bestAttempt ? [
                     'id' => $bestAttempt->id,
                     'score' => (float) $bestAttempt->score,
@@ -100,7 +110,7 @@ class LessonResource extends JsonResource
                     'submittedAt' => $bestAttempt->submitted_at?->toISOString(),
                 ] : null,
             ];
-        })->values(), 'media' => $assets->map(fn ($asset) => ['id' => $asset->id, 'kind' => $asset->kind, 'name' => $asset->original_name, 'mimeType' => $asset->mime_type, 'size' => $asset->size_bytes])->values(), 'transcript' => $canAccessContent ? $this->transcript : null, 'transcriptEn' => $canAccessContent ? $this->transcript_en : null, 'captions' => $canAccessContent ? ($this->captions ?: []) : []];
+        })->values(), 'media' => $assets->map(fn ($asset) => ['id' => $asset->id, 'kind' => $asset->kind, 'name' => $asset->original_name, 'mimeType' => $asset->mime_type, 'size' => $asset->size_bytes, 'offlineAllowed' => (bool) ($this->is_preview && $this->allow_pdf_download && $asset->kind === 'resource' && $asset->mime_type === 'application/pdf'), 'url' => $this->is_preview && $this->allow_pdf_download && $asset->kind === 'resource' && $asset->mime_type === 'application/pdf' ? url('/api/media/'.$asset->id.'/offline') : null])->values(), 'transcript' => $canAccessContent ? $this->transcript : null, 'transcriptEn' => $canAccessContent ? $this->transcript_en : null, 'captionsLanguage' => preg_match('/\p{Arabic}/u', json_encode($this->captions ?: [], JSON_UNESCAPED_UNICODE)) ? 'ar' : 'en', 'captions' => $canAccessContent ? ($this->captions ?: []) : []];
     }
 
     private function sectionContent($section, $assets): array

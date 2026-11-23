@@ -90,7 +90,7 @@ class ParentStudentController extends Controller
             $completed = $lessonIds->intersect($completedLessonIds)->count();
             $progress = $lessonIds->isEmpty() ? 0 : (int) round(($completed / $lessonIds->count()) * 100);
             $attempt = $attempts->first(fn (AssessmentAttempt $item) => $item->assessment?->course_id === $course->id);
-            $data = ['courseId' => $course->id, 'progress' => $progress, 'completedLessons' => $completed, 'totalLessons' => $lessonIds->count(), 'assessmentScore' => $attempt?->score, 'assessmentPassed' => $attempt?->passed ?? false, 'certificateIssued' => $certifiedCourseIds->contains($course->id)];
+            $data = ['courseId' => $course->id, 'progress' => $progress, 'completedLessons' => $completed, 'totalLessons' => $lessonIds->count(), 'assessmentScore' => $attempt?->effective_score, 'assessmentPassed' => $attempt?->passed ?? false, 'certificateIssued' => $certifiedCourseIds->contains($course->id)];
             if ($detailed) {
                 $data['lastActivityAt'] = $completions->first(fn ($completion) => $lessonIds->contains($completion->lesson_id))?->completed_at?->toISOString();
             }
@@ -130,7 +130,7 @@ class ParentStudentController extends Controller
                     'courseId' => $attempt->assessment?->course_id,
                     'course' => $attempt->assessment?->course?->title,
                     'courseEn' => $attempt->assessment?->course?->title_en,
-                    'score' => $attempt->score,
+                    'score' => $attempt->effective_score,
                     'passed' => $attempt->passed,
                     'submittedAt' => $attempt->submitted_at?->toISOString(),
                 ])->values(),

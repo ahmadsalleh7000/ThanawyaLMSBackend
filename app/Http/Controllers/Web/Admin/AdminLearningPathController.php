@@ -15,6 +15,7 @@ use App\Models\Training;
 use App\Models\Unit;
 use App\Services\AcademicLearningPathService;
 use App\Services\AuditService;
+use App\Services\ExamSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -164,6 +165,39 @@ class AdminLearningPathController extends Controller
         $audit->record($request, 'learning_path.training_created', $training);
 
         return back()->with('success', 'تمت إضافة التدريب كمسودة.');
+    }
+
+    public function trainingSettings(Training $training): View
+    {
+        $training->load(['questions', 'quiz.questions']);
+        $questions = $training->question_bank_quiz_id && $training->quiz ? $training->quiz->questions : $training->questions;
+
+        return view('admin.assessments.training', compact('training', 'questions'));
+    }
+
+    public function updateTrainingSettings(Request $request, Training $training, AuditService $audit): RedirectResponse
+    {
+        abort_if($training->status === 'published', 409, 'Unpublish before changing quiz settings.');
+        if ($request->input('enabled_question_ids') === null) {
+            $request->merge(['enabled_question_ids' => []]);
+        }
+        $data = $request->validate(ExamSettings::rules(false) + [
+            'passing_score' => ['required', 'integer', 'min:1', 'max:100'],
+            'available_from' => ['nullable', 'date'],
+            'available_until' => ['nullable', 'date', 'after:available_from'],
+            'enabled_question_ids' => ['present', 'array'],
+            'enabled_question_ids.*' => ['integer', 'distinct'],
+        ]);
+        $questions = $training->question_bank_quiz_id && $training->quiz ? $training->quiz->questions : $training->questions;
+        $enabled = collect($data['enabled_question_ids'])->map(fn ($id) => (int) $id);
+        abort_if($enabled->diff($questions->pluck('id'))->isNotEmpty(), 422, 'Choose questions from this quiz only.');
+        unset($data['enabled_question_ids']);
+        $data['excluded_question_ids'] = $questions->pluck('id')->diff($enabled)->values()->all();
+        $before = $training->attributesToArray();
+        $training->update($data);
+        $audit->record($request, 'learning_path.training_settings_updated', $training, $before);
+
+        return back()->with('success', 'تم حفظ إعدادات الاختبار والأسئلة.');
     }
 
     public function state(Request $request, string $type, int $id, AuditService $audit): RedirectResponse

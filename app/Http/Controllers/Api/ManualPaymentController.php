@@ -48,14 +48,14 @@ class ManualPaymentController extends Controller
             [$order, $submission] = DB::transaction(function () use ($data, $file, $mime, $order, $request, $settings, &$path): array {
                 $lockedOrder = $order->newQuery()->lockForUpdate()->findOrFail($order->id);
                 abort_unless($lockedOrder->payment_provider === 'manual_transfer', 422, 'This order does not accept manual evidence.');
-                abort_unless(in_array($lockedOrder->status, ['pending', 'needs_information'], true), 409, 'This order cannot accept another submission.');
+                abort_unless(in_array($lockedOrder->status, ['pending', 'needs_information'], true), 409, __('This order cannot accept another submission.'));
                 abort_if(
                     $lockedOrder->status === 'needs_information'
                         && $lockedOrder->manualPaymentSubmissions()->count() >= 3,
                     409,
                     'This order has reached the maximum number of receipt submissions. Contact support for help.',
                 );
-                abort_if($lockedOrder->status === 'pending' && $lockedOrder->created_at->addMinutes($settings->expiresMinutes())->isPast(), 410, 'This payment order has expired.');
+                abort_if($lockedOrder->status === 'pending' && $lockedOrder->created_at->addMinutes($settings->expiresMinutes())->isPast(), 410, __('This payment order has expired.'));
                 abort_if(abs((float) $data['submitted_amount'] - (float) $lockedOrder->amount) > 0.001, 422, 'The submitted amount must match the order total.');
 
                 $path = $file->store('payment-receipts/'.now()->format('Y/m'), 'local');

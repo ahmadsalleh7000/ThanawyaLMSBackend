@@ -20,14 +20,14 @@ class StudentSubscriptionService
         $grade = $profile?->grade;
         $semester = $profile?->semester;
 
-        if (! $grade || ! $semester) {
+        $termIds = $order->provider_payload['academic_term_ids'] ?? null;
+        if (! $termIds && (! $grade || ! $semester)) {
             throw ValidationException::withMessages([
                 'grade' => ['A grade and semester are required before activating a subscription.'],
             ]);
         }
 
-        $terms = AcademicTerm::active()->whereHas('grade', fn ($query) => $query->where('code', $grade))
-            ->where('code', $semester)
+        $terms = AcademicTerm::active()->when($termIds, fn ($query) => $query->whereIn('id', $termIds), fn ($query) => $query->whereHas('grade', fn ($gradeQuery) => $gradeQuery->where('code', $grade))->where('code', $semester))
             ->whereHas('subscriptionPlans', fn ($query) => $query->whereKey($order->subscription_plan_id))->get();
 
         if ($terms->isEmpty()) {
@@ -54,7 +54,7 @@ class StudentSubscriptionService
 
                 StudentSubscription::updateOrCreate(
                     ['student_id' => $student->id, 'academic_term_id' => $term->id, 'order_id' => $order->id],
-                    ['subscription_plan_id' => $order->subscription_plan_id, 'status' => 'active', 'starts_at' => now(), 'ends_at' => $term->ends_on?->endOfDay()],
+                    ['subscription_plan_id' => $order->subscription_plan_id, 'status' => 'active', 'starts_at' => $term->starts_on?->isFuture() ? $term->starts_on->startOfDay() : now(), 'ends_at' => $term->ends_on?->endOfDay()],
                 );
             }
         });

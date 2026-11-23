@@ -11,9 +11,18 @@ class NotificationController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $items = $request->user()->userNotifications()->latest()->limit(50)->get()->map(fn (UserNotification $item) => $this->serialize($item));
+        $filters = $request->validate(['page' => ['nullable', 'integer', 'min:1'], 'filter' => ['nullable', 'in:all,read,unread']]);
+        $base = $request->user()->userNotifications();
+        $total = (clone $base)->count();
+        $unread = (clone $base)->whereNull('read_at')->count();
+        $query = (clone $base)->when(($filters['filter'] ?? '') === 'unread', fn ($query) => $query->whereNull('read_at'))
+            ->when(($filters['filter'] ?? '') === 'read', fn ($query) => $query->whereNotNull('read_at'));
+        $items = $query->latest()->orderByDesc('id')->paginate(20);
 
-        return response()->json(['data' => $items, 'meta' => ['unreadCount' => $items->where('isRead', false)->count()]]);
+        return response()->json(['data' => $items->getCollection()->map(fn (UserNotification $item) => $this->serialize($item)), 'meta' => [
+            'currentPage' => $items->currentPage(), 'lastPage' => $items->lastPage(), 'total' => $total,
+            'unreadCount' => $unread, 'readCount' => $total - $unread,
+        ]])->header('Cache-Control', 'private, no-store');
     }
 
     public function announcements(Request $request): JsonResponse

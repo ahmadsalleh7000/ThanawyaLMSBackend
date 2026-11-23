@@ -22,10 +22,11 @@ class EnsureAccountIsActive
     {
         $user = $request->user();
         $paymentOnly = $user?->role === User::ROLE_STUDENT
-            && $user->registrationStatus() === RegistrationStatus::PendingPaymentReview
-            && in_array($request->path(), self::PAYMENT_ONLY_PATHS, true);
+            && in_array($user->registrationStatus(), [RegistrationStatus::PendingPaymentReview, RegistrationStatus::Rejected], true)
+            && (in_array($request->path(), self::PAYMENT_ONLY_PATHS, true)
+                || $request->is('api/support/tickets', 'api/support/tickets/*', 'api/support/messages/*/attachment'));
 
-        abort_unless($user?->isEligibleForAccess() || $paymentOnly, 403, 'This account is not eligible to access the platform.');
+        abort_unless($user?->isEligibleForAccess() || $paymentOnly, 403, __('This account is not eligible to access the platform.'));
 
         return $next($request);
     }

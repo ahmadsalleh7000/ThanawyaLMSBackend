@@ -23,7 +23,12 @@ class LessonCommentController extends Controller
     public function index(Request $request, Course $course, string $lesson): JsonResponse
     {
         $lessonModel = $this->accessibleLesson($request, $course, $lesson);
+        $request->validate(['comment_id' => ['nullable', 'integer', 'min:1']]);
+        if ($request->filled('comment_id')) {
+            $lessonModel->comments()->whereNull('parent_id')->whereKey($request->integer('comment_id'))->firstOrFail();
+        }
         $comments = $lessonModel->comments()->whereNull('parent_id')
+            ->when($request->filled('comment_id'), fn ($query) => $query->whereKey($request->integer('comment_id')))
             ->with([
                 'lesson:id,comments_enabled',
                 'user:id,name,role',
@@ -64,7 +69,7 @@ class LessonCommentController extends Controller
                 'title_ar' => 'سؤال جديد من طالب',
                 'message' => $lessonModel->title,
                 'message_ar' => $lessonModel->title,
-                'action_url' => '/teacher/courses/'.$course->id,
+                'action_url' => '/teacher/courses/'.$course->id.'?question='.$comment->id,
                 'data' => ['courseId' => $course->id, 'lessonId' => $lessonModel->id, 'commentId' => $comment->id],
             ]));
 
@@ -92,9 +97,18 @@ class LessonCommentController extends Controller
                 'title_ar' => 'تم الرد على سؤالك',
                 'message' => $lessonModel->title,
                 'message_ar' => $lessonModel->title,
-                'action_url' => '/course-player/'.$course->id.'?lesson='.$lessonModel->slug,
+                'action_url' => '/course-player/'.$course->id.'?'.http_build_query(['lesson' => $lessonModel->slug, 'tab' => 'discussion', 'comment' => $comment->id]),
                 'data' => ['courseId' => $course->id, 'lessonId' => $lessonModel->id, 'commentId' => $comment->id],
             ]);
+        }
+        if ($request->user()->role === User::ROLE_STUDENT) {
+            TeacherCourseAssignment::query()->active()->where('course_id', $course->id)->with('teacher')->get()
+                ->each(fn ($assignment) => $assignment->teacher?->userNotifications()->create([
+                    'type' => 'lesson_comment', 'title' => 'New follow-up to a learner question', 'title_ar' => 'رد جديد في سؤال طالب',
+                    'message' => $lessonModel->title, 'message_ar' => $lessonModel->title,
+                    'action_url' => '/teacher/courses/'.$course->id.'?question='.$comment->id,
+                    'data' => ['courseId' => $course->id, 'lessonId' => $lessonModel->id, 'commentId' => $comment->id],
+                ]));
         }
 
         return response()->json([

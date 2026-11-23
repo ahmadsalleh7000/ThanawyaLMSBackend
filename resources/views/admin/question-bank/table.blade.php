@@ -6,7 +6,7 @@
             <tr class="{{ $question->is_active ? '' : 'muted-row' }}">
                 <td><div class="table-question"><strong>{{ $question->prompt_ar }}</strong><small lang="en" dir="ltr">{{ $question->prompt }}</small></div></td>
                 <td><strong>{{ $question->topic_ar }}</strong><small lang="en" dir="ltr">{{ $question->topic }}</small></td>
-                <td>{{ $question->type === 'true_false' ? 'صح أو خطأ' : 'اختيار واحد' }}</td>
+                <td>{{ \App\Models\QuestionBankQuestion::TYPE_LABELS[$question->type] ?? $question->type }}</td>
                 <td><span class="table-difficulty difficulty-{{ $question->difficulty }}">{{ ['easy'=>'سهل','medium'=>'متوسط','hard'=>'صعب'][$question->difficulty] }}</span></td>
                 <td><strong>{{ $question->assessment_questions_count }}</strong><small>تقييمات</small></td>
                 <td><span class="badge {{ $question->is_active ? 'active' : 'inactive' }}">{{ $question->is_active ? 'فعال' : 'معطل' }}</span></td>

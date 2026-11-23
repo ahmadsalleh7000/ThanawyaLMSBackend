@@ -73,7 +73,7 @@ class AdminStudentSupportController extends Controller
         $activity = $case->activities()->create($data + ['created_by' => $request->user()->id]);
         if ($data['type'] === 'parent_escalation') {
             foreach ($case->student->linkedParents as $parent) {
-                $parent->userNotifications()->create(['type' => 'student_support', 'title' => 'Student follow-up requested', 'title_ar' => 'مطلوب متابعة الطالب', 'message' => $data['body'], 'message_ar' => $data['body'], 'action_url' => '/parent/students/'.$case->student_id]);
+                $parent->userNotifications()->create(['type' => 'student_support', 'title' => 'Student follow-up requested', 'title_ar' => 'مطلوب متابعة الطالب', 'message' => $data['body'], 'message_ar' => $data['body'], 'action_url' => '/parent-dashboard/'.$case->student_id]);
             }
         }
         $audit->record($request, 'support_activity.created', $activity);

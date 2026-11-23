@@ -20,7 +20,7 @@ class CourseController extends Controller
         $courses = ($user?->role === 'student'
             ? $this->access->visibleCoursesQuery($user)
             : Course::available())
-            ->with(['lessons.unit', 'lessons.assignments', 'lessons.sections', 'lessons.mediaAssets.libraryItem', 'lessons.trainings' => fn ($query) => $query->with(['quiz.questions'])->withCount('questions')])->get();
+            ->with($request->query('view') === 'catalog' ? ['lessons.unit', 'lessons.prerequisites'] : ['lessons.unit', 'lessons.assignments', 'lessons.sections', 'lessons.mediaAssets.libraryItem', 'lessons.trainings' => fn ($query) => $query->with(['quiz.questions'])->withCount('questions')])->get();
         $accessibleCourseIds = $user ? $this->access->courseIdsFor($user) : collect();
         $courses->each(function (Course $course) use ($user, $accessibleCourseIds): void {
             $canAccess = $accessibleCourseIds->contains($course->id);
@@ -36,7 +36,7 @@ class CourseController extends Controller
         $user = $request->user('sanctum');
         abort_unless($course->is_published && ! $course->archived_at, 404);
         if ($user?->role === 'student') {
-            abort_unless($this->access->canAccessCourse($user, $course), 403, 'This course is not included in your active learning access.');
+            abort_unless($this->access->canAccessCourse($user, $course), 403, __('This course is not included in your active learning access.'));
         }
         $course->load(['lessons.unit', 'lessons.assignments', 'lessons.sections', 'lessons.mediaAssets.libraryItem', 'lessons.trainings' => fn ($query) => $query->with(['quiz.questions'])->withCount('questions')]);
         $canAccess = $user && $this->access->canAccessCourse($user, $course);
@@ -48,19 +48,24 @@ class CourseController extends Controller
 
     private function filterStudentLessons(Course $course, $user, bool $canAccess): void
     {
-        if ($user?->role !== 'student') {
-            return;
-        }
-
         $course->setRelation('lessons', $course->lessons
-            ->filter(fn (Lesson $lesson) => $lesson->is_preview || ($canAccess && $this->access->canAccessLesson($user, $lesson)))
+            ->filter(fn (Lesson $lesson) => $lesson->status === 'published' && (! $lesson->unit || $lesson->unit->status === 'published'))
+            ->sortBy(fn (Lesson $lesson) => [$lesson->unit?->position ?? -1, $lesson->position, $lesson->id])
             ->values());
     }
 
     private function markLessonAccess(Course $course, $user, bool $canAccess): void
     {
-        $course->lessons->each(
-            fn ($lesson) => $lesson->setAttribute('content_access_granted', $canAccess && $user && $this->access->canAccessLesson($user, $lesson)),
-        );
+        $canAccess = $canAccess && $user && $this->access->canAccessCourse($user, $course);
+        if ($user) {
+            $user->loadMissing('lessonCompletions');
+        }
+        $course->loadMissing('lessons.prerequisites');
+        $course->lessons->each(function ($lesson) use ($course, $user, $canAccess): void {
+            $lesson->setRelation('course', $course);
+            $reason = $this->access->lessonLockReason($user, $lesson, (bool) $canAccess);
+            $lesson->setAttribute('lock_reason', $reason);
+            $lesson->setAttribute('content_access_granted', $reason === null && $canAccess && $user);
+        });
     }
 }
